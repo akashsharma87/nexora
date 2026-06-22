@@ -1,11 +1,10 @@
 'use client'
 
 import { FormEvent, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { signIn } from 'next-auth/react'
 import { Building2, Lock, Mail, User } from 'lucide-react'
 
 export function RegisterForm() {
-  const router = useRouter()
   const [name, setName] = useState('')
   const [hotelName, setHotelName] = useState('')
   const [email, setEmail] = useState('')
@@ -33,7 +32,20 @@ export function RegisterForm() {
         return
       }
 
-      router.push('/login?registered=1')
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+        callbackUrl: '/',
+      })
+
+      if (result?.error) {
+        setError('Account created but sign-in failed. Please log in manually.')
+        setIsSubmitting(false)
+        return
+      }
+
+      window.location.href = '/'
     } catch {
       setError('Something went wrong. Please try again.')
       setIsSubmitting(false)
