@@ -37,27 +37,41 @@ export async function sendTemplateMessage(
   }
 
   const normalizedPhone = normalizePhone(phone)
-  const url = `${process.env.WATI_API_URL}/api/v1/sendtemplatemessage?whatsappNumber=${normalizedPhone}`
+
+  // Try v2 first (live-XXXXX.wati.io instances), fall back to v1
+  const urlV2 = `${process.env.WATI_API_URL}/api/v2/sendTemplateMessage?whatsappNumber=${normalizedPhone}`
+  const urlV1 = `${process.env.WATI_API_URL}/api/v1/sendTemplateMessage?whatsappNumber=${normalizedPhone}`
+
+  const body = JSON.stringify({
+    template_name: templateName,
+    broadcast_name: broadcastName || `nexora_${Date.now()}`,
+    parameters,
+  })
+
+  console.log(`[WATI] Sending template "${templateName}" to ${normalizedPhone}`)
+  console.log(`[WATI] v2 URL: ${urlV2}`)
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        template_name: templateName,
-        broadcast_name: broadcastName || `nexora_${Date.now()}`,
-        parameters,
-      }),
-    })
+    const responseV2 = await fetch(urlV2, { method: 'POST', headers: getHeaders(), body })
+    const textV2 = await responseV2.text()
+    console.log(`[WATI v2] ${responseV2.status} → ${textV2}`)
 
-    const responseText = await response.text()
-    if (!response.ok) {
-      console.error(`[WATI ERROR] ${response.status} on POST ${url} → ${responseText}`)
-      return { success: false, error: responseText }
+    if (responseV2.ok) {
+      return { success: true }
     }
 
-    console.log(`[WATI OK] Template sent to ${normalizedPhone}: ${responseText}`)
-    return { success: true }
+    if (responseV2.status === 405 || responseV2.status === 404) {
+      // v2 not supported on this instance, try v1
+      console.log(`[WATI] v2 returned ${responseV2.status}, trying v1: ${urlV1}`)
+      const responseV1 = await fetch(urlV1, { method: 'POST', headers: getHeaders(), body })
+      const textV1 = await responseV1.text()
+      console.log(`[WATI v1] ${responseV1.status} → ${textV1}`)
+
+      if (responseV1.ok) return { success: true }
+      return { success: false, error: `v1: ${textV1}` }
+    }
+
+    return { success: false, error: textV2 }
   } catch (err) {
     const error = err instanceof Error ? err.message : 'Unknown error'
     console.error(`[WATI ERROR] ${error}`)
