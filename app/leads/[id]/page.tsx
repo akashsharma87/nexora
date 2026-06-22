@@ -18,6 +18,7 @@ type Task = {
   priority: string
   completed: boolean
   completedAt?: string | null
+  assignedTo?: { id: string; name: string } | null
 }
 
 type LeadDetail = {
@@ -92,6 +93,7 @@ export default function LeadDetailPage() {
   const [taskTitle, setTaskTitle] = useState('')
   const [taskDueDate, setTaskDueDate] = useState('')
   const [taskPriority, setTaskPriority] = useState('MEDIUM')
+  const [taskAssignee, setTaskAssignee] = useState('')
   const [showWhatsApp, setShowWhatsApp] = useState(false)
   const [waMessage, setWaMessage] = useState('')
 
@@ -148,7 +150,7 @@ export default function LeadDetailPage() {
   })
 
   const addTaskMutation = useMutation({
-    mutationFn: async (payload: { title: string; dueDate?: string; priority: string }) => {
+    mutationFn: async (payload: { title: string; dueDate?: string; priority: string; assignedToId?: string }) => {
       const response = await fetch(`/api/leads/${params.id}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -245,6 +247,7 @@ export default function LeadDetailPage() {
       title: taskTitle,
       dueDate: taskDueDate || undefined,
       priority: taskPriority,
+      assignedToId: taskAssignee || undefined,
     })
   }
 
@@ -450,12 +453,12 @@ export default function LeadDetailPage() {
 
                 <div>
                   <h2 className="mb-3 font-semibold text-foreground">Tasks</h2>
-                  <form onSubmit={handleAddTask} className="mb-4 flex flex-col gap-2 sm:flex-row">
+                  <form onSubmit={handleAddTask} className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
                     <input
                       value={taskTitle}
                       onChange={(e) => setTaskTitle(e.target.value)}
                       placeholder="New task title..."
-                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm sm:col-span-2 lg:col-span-1"
                     />
                     <input
                       type="date"
@@ -472,6 +475,16 @@ export default function LeadDetailPage() {
                       <option value="MEDIUM">Medium</option>
                       <option value="HIGH">High</option>
                       <option value="URGENT">Urgent</option>
+                    </select>
+                    <select
+                      value={taskAssignee}
+                      onChange={(e) => setTaskAssignee(e.target.value)}
+                      className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">Assign to...</option>
+                      {(usersData?.users ?? []).map((u) => (
+                        <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
                     </select>
                     <button
                       type="submit"
@@ -497,9 +510,14 @@ export default function LeadDetailPage() {
                           <p className={`text-sm font-medium ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
                             {task.title}
                           </p>
-                          {task.dueDate && (
-                            <p className="text-xs text-muted-foreground">{formatDate(task.dueDate)}</p>
-                          )}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {task.dueDate && (
+                              <p className="text-xs text-muted-foreground">{formatDate(task.dueDate)}</p>
+                            )}
+                            {task.assignedTo && (
+                              <span className="text-xs text-primary font-medium">→ {task.assignedTo.name}</span>
+                            )}
+                          </div>
                         </div>
                         <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${priorityColors[task.priority] ?? 'bg-muted text-muted-foreground'}`}>
                           {task.priority}

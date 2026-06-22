@@ -9,6 +9,7 @@ const taskCreateSchema = z.object({
   description: z.string().optional(),
   dueDate: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.date().optional()),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+  assignedToId: z.string().optional(),
 })
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -29,6 +30,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const tasks = await prisma.task.findMany({
     where: { leadId: id },
     orderBy: { dueDate: 'asc' },
+    include: { assignedTo: { select: { id: true, name: true } } },
   })
 
   return NextResponse.json({ tasks })
@@ -63,15 +65,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       description: parsed.data.description,
       dueDate: parsed.data.dueDate,
       priority: parsed.data.priority ?? 'MEDIUM',
+      assignedToId: parsed.data.assignedToId || null,
+    },
+    include: {
+      assignedTo: { select: { id: true, name: true } },
     },
   })
 
+  const assigneeName = task.assignedTo?.name
   await prisma.leadActivity.create({
     data: {
       leadId: id,
       userId: session.user.id,
       type: 'TASK_CREATED',
-      content: `Task created: ${parsed.data.title}`,
+      content: assigneeName
+        ? `Task created: "${parsed.data.title}" — assigned to ${assigneeName}`
+        : `Task created: ${parsed.data.title}`,
     },
   })
 

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, BarChart3, Briefcase, Calendar, Loader2, TrendingUp, Users } from 'lucide-react'
+import { AlertTriangle, BarChart3, Briefcase, Calendar, CheckSquare, ClipboardList, Loader2, TrendingUp, Users } from 'lucide-react'
 
 import { AchievementBadge } from '@/components/achievement-badge'
 import { DashboardLayout } from '@/components/dashboard-layout'
@@ -49,6 +49,19 @@ type OverdueData = {
   totalOverdue: number
 }
 
+type MyTask = {
+  id: string
+  title: string
+  priority: string
+  dueDate?: string | null
+  lead?: { id: string; name: string; stage: string } | null
+}
+
+type MyTasksData = {
+  tasks: MyTask[]
+  overdueCount: number
+}
+
 async function fetchDashboard(): Promise<DashboardData> {
   const response = await fetch('/api/analytics/dashboard')
   if (!response.ok) throw new Error('Failed to load dashboard')
@@ -58,6 +71,12 @@ async function fetchDashboard(): Promise<DashboardData> {
 async function fetchOverdue(): Promise<OverdueData> {
   const response = await fetch('/api/analytics/overdue')
   if (!response.ok) throw new Error('Failed to load overdue leads')
+  return response.json()
+}
+
+async function fetchMyTasks(): Promise<MyTasksData> {
+  const response = await fetch('/api/tasks/my')
+  if (!response.ok) throw new Error('Failed to load tasks')
   return response.json()
 }
 
@@ -71,6 +90,12 @@ export default function Dashboard() {
     queryKey: ['overdue'],
     queryFn: fetchOverdue,
     refetchInterval: 60000,
+  })
+
+  const { data: myTasksData } = useQuery({
+    queryKey: ['my-tasks'],
+    queryFn: fetchMyTasks,
+    refetchInterval: 30000,
   })
 
   const totalStageCount = data?.stageCounts.reduce((total, row) => total + row.count, 0) ?? 0
@@ -220,6 +245,54 @@ export default function Dashboard() {
                       })}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {myTasksData && myTasksData.tasks.length > 0 && (
+              <div className="rounded-xl border border-border bg-card p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <ClipboardList className="h-5 w-5 text-primary" />
+                    <h3 className="font-semibold text-foreground">My Tasks</h3>
+                    {myTasksData.overdueCount > 0 && (
+                      <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
+                        {myTasksData.overdueCount} overdue
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground">{myTasksData.tasks.length} open</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {myTasksData.tasks.map((task) => {
+                    const isOverdue = task.dueDate && new Date(task.dueDate) < new Date()
+                    const priorityColor: Record<string, string> = {
+                      URGENT: 'border-l-destructive',
+                      HIGH: 'border-l-orange-500',
+                      MEDIUM: 'border-l-primary',
+                      LOW: 'border-l-muted-foreground',
+                    }
+                    return (
+                      <Link
+                        key={task.id}
+                        href={task.lead ? `/leads/${task.lead.id}` : '#'}
+                        className={`rounded-lg border border-border border-l-4 ${priorityColor[task.priority] ?? 'border-l-border'} bg-muted/30 px-4 py-3 hover:bg-muted/60 transition-colors`}
+                      >
+                        <p className="text-sm font-medium text-foreground line-clamp-2">{task.title}</p>
+                        {task.lead && (
+                          <p className="text-xs text-primary mt-1 truncate">{task.lead.name}</p>
+                        )}
+                        {task.dueDate && (
+                          <p className={`text-xs mt-1 ${isOverdue ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}>
+                            {isOverdue ? 'Overdue · ' : ''}{formatDate(task.dueDate)}
+                          </p>
+                        )}
+                        <span className="mt-2 inline-block rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                          {task.priority}
+                        </span>
+                      </Link>
+                    )
+                  })}
                 </div>
               </div>
             )}
