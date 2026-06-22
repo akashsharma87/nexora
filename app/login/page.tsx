@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import Link from 'next/link'
 
 import { LoginForm } from './login-form'
 
@@ -11,18 +12,19 @@ export default function LoginPage() {
             N
           </div>
           <h1 className="text-3xl font-bold">Sign in to NEXORA</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Use the demo hotel manager account to continue.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Enter your credentials to continue.</p>
         </div>
 
         <Suspense fallback={<div className="h-72 rounded-lg border border-border bg-card" />}>
           <LoginForm />
         </Suspense>
 
-        <div className="mt-4 rounded-lg border border-border bg-card/60 p-4 text-sm text-muted-foreground">
-          Demo accounts: <span className="text-foreground">owner@grandbanquets.com</span>,{' '}
-          <span className="text-foreground">manager@grandbanquets.com</span>.
-          Password: <span className="text-foreground">Demo@1234</span>.
-        </div>
+        <p className="mt-5 text-center text-sm text-muted-foreground">
+          No account yet?{' '}
+          <Link href="/register" className="text-primary underline underline-offset-4">
+            Create one
+          </Link>
+        </p>
       </div>
     </main>
   )

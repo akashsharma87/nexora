@@ -8,8 +8,9 @@ import { Lock, Mail } from 'lucide-react'
 export function LoginForm() {
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get('callbackUrl') ?? '/'
-  const [email, setEmail] = useState('owner@grandbanquets.com')
-  const [password, setPassword] = useState('Demo@1234')
+  const registered = searchParams.get('registered') === '1'
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -36,6 +37,12 @@ export function LoginForm() {
   }
 
   return (
+    <>
+    {registered && (
+      <div className="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-600 dark:text-green-400">
+        Account created successfully. Sign in below.
+      </div>
+    )}
     <form onSubmit={handleSubmit} className="rounded-lg border border-border bg-card p-6 space-y-5">
       <label className="block">
         <span className="text-sm font-medium text-foreground">Email</span>
@@ -77,5 +84,6 @@ export function LoginForm() {
         {isSubmitting ? 'Signing in...' : 'Sign in'}
       </button>
     </form>
+    </>
   )
 }
