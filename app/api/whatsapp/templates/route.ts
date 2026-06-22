@@ -2,18 +2,29 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { canManage, requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
+import { seedPropertyDefaults } from '@/lib/seeds/property-defaults'
 import { messageTemplateCreateSchema } from '@/lib/validations/whatsapp'
 
 export async function GET() {
   const { error, session } = await requireSession()
   if (error) return error
 
-  const templates = await prisma.messageTemplate.findMany({
+  let templates = await prisma.messageTemplate.findMany({
     where: {
       OR: [{ propertyId: session.user.propertyId }, { propertyId: null }],
     },
     orderBy: { createdAt: 'desc' },
   })
+
+  if (templates.length === 0 && session.user.propertyId) {
+    await seedPropertyDefaults(prisma, session.user.propertyId)
+    templates = await prisma.messageTemplate.findMany({
+      where: {
+        OR: [{ propertyId: session.user.propertyId }, { propertyId: null }],
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
 
   return NextResponse.json({ templates })
 }

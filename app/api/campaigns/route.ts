@@ -2,16 +2,25 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { canManage, requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
+import { seedPropertyDefaults } from '@/lib/seeds/property-defaults'
 import { campaignCreateSchema } from '@/lib/validations/campaign'
 
 export async function GET() {
   const { error, session } = await requireSession()
   if (error) return error
 
-  const campaigns = await prisma.campaign.findMany({
+  let campaigns = await prisma.campaign.findMany({
     where: { propertyId: session.user.propertyId },
     orderBy: { startDate: 'desc' },
   })
+
+  if (campaigns.length === 0 && session.user.propertyId) {
+    await seedPropertyDefaults(prisma, session.user.propertyId)
+    campaigns = await prisma.campaign.findMany({
+      where: { propertyId: session.user.propertyId },
+      orderBy: { startDate: 'desc' },
+    })
+  }
 
   return NextResponse.json({ campaigns })
 }

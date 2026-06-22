@@ -2,16 +2,25 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { canManage, requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
+import { seedPropertyDefaults } from '@/lib/seeds/property-defaults'
 import { platformCreateSchema } from '@/lib/validations/platform'
 
 export async function GET() {
   const { error, session } = await requireSession()
   if (error) return error
 
-  const platforms = await prisma.platformListing.findMany({
+  let platforms = await prisma.platformListing.findMany({
     where: { propertyId: session.user.propertyId },
     orderBy: { platform: 'asc' },
   })
+
+  if (platforms.length === 0 && session.user.propertyId) {
+    await seedPropertyDefaults(prisma, session.user.propertyId)
+    platforms = await prisma.platformListing.findMany({
+      where: { propertyId: session.user.propertyId },
+      orderBy: { platform: 'asc' },
+    })
+  }
 
   return NextResponse.json({ platforms })
 }

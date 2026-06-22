@@ -1,12 +1,29 @@
 'use client'
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import toast from 'react-hot-toast'
-import { AlertCircle, CheckCircle, Eye, Loader2, Plus, Settings, TrendingUp } from 'lucide-react'
+import { AlertCircle, CheckCircle, ExternalLink, Eye, Loader2, Plus, TrendingUp } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { formatCurrency, formatDate, platformLabels } from '@/lib/format'
+
+const PLATFORM_URLS: Record<string, string> = {
+  WEDMEGOOD: 'https://www.wedmegood.com/vendor/signup',
+  WEDDINGZ: 'https://www.weddingz.in/vendor-signup.html',
+  VENUELOOK: 'https://www.venuelook.com/list-venue',
+  WEDDINGBAZAAR: 'https://www.weddingbazaar.com/list-your-business',
+  GOOGLE_BUSINESS: 'https://business.google.com',
+  JUSTDIAL: 'https://www.justdial.com/business',
+}
+
+const PLATFORM_DESCRIPTIONS: Record<string, string> = {
+  WEDMEGOOD: 'Premium wedding discovery — 10,000+ venues, high-intent wedding audience',
+  WEDDINGZ: 'OYO-backed platform — strong in destination weddings & vendor marketplace',
+  VENUELOOK: 'Free quote system — 50+ cities, all event types, high-volume top-of-funnel',
+  WEDDINGBAZAAR: 'Pan-India reach — dedicated account management, verified listing',
+  GOOGLE_BUSINESS: 'Google Search & Maps — essential local SEO, where all discovery starts',
+  JUSTDIAL: 'B2B & local — high call volume, strong for corporate and local searches',
+}
 
 type PlatformListing = {
   id: string
@@ -27,25 +44,7 @@ async function fetchPlatforms(): Promise<{ platforms: PlatformListing[] }> {
 }
 
 export default function PlatformsPage() {
-  const queryClient = useQueryClient()
   const { data, isLoading, isError } = useQuery({ queryKey: ['platforms'], queryFn: fetchPlatforms })
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const response = await fetch(`/api/platforms/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      if (!response.ok) throw new Error('Failed to update listing')
-      return response.json()
-    },
-    onSuccess: () => {
-      toast.success('Listing updated')
-      queryClient.invalidateQueries({ queryKey: ['platforms'] })
-    },
-    onError: () => toast.error('Listing could not be updated'),
-  })
 
   const platforms = data?.platforms ?? []
   const connectedCount = platforms.filter((platform) => platform.status === 'ACTIVE').length
@@ -96,54 +95,78 @@ export default function PlatformsPage() {
         {isError && <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-6 text-destructive">Could not load platform listings.</div>}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {platforms.map((platform) => (
-            <div key={platform.id} className="bg-card rounded-lg border border-border overflow-hidden hover:shadow-lg transition-shadow">
-              <div className={`px-6 py-4 border-b border-border flex justify-between items-start ${platform.status === 'ACTIVE' ? 'bg-green-50 dark:bg-green-950' : 'bg-muted/50'}`}>
-                <div>
-                  <Link href={`/platforms/${platform.id}`} className="text-lg font-semibold text-foreground hover:underline">
-                    {platformLabels[platform.platform] ?? platform.platform}
+          {platforms.map((platform) => {
+            const isActive = platform.status === 'ACTIVE'
+            const isPending = platform.status === 'PENDING_SETUP'
+            const externalUrl = PLATFORM_URLS[platform.platform]
+            const description = PLATFORM_DESCRIPTIONS[platform.platform]
+
+            return (
+              <div key={platform.id} className="bg-card rounded-lg border border-border overflow-hidden hover:shadow-lg transition-shadow flex flex-col">
+                <div className={`px-6 py-4 border-b border-border flex justify-between items-start ${isActive ? 'bg-green-50 dark:bg-green-950' : isPending ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-muted/50'}`}>
+                  <div className="flex-1 min-w-0 pr-2">
+                    <Link href={`/platforms/${platform.id}`} className="text-lg font-semibold text-foreground hover:underline">
+                      {platformLabels[platform.platform] ?? platform.platform}
+                    </Link>
+                    <p className="text-xs text-muted-foreground mt-0.5">{platform.tier ?? 'Standard'} Plan</p>
+                  </div>
+                  <span className={`shrink-0 px-2 py-1 rounded text-xs font-semibold ${isActive ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : isPending ? 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' : 'bg-muted text-muted-foreground'}`}>
+                    {platform.status.replaceAll('_', ' ')}
+                  </span>
+                </div>
+
+                {description && (
+                  <div className="px-6 pt-3">
+                    <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+                  </div>
+                )}
+
+                <div className="px-6 py-4 border-b border-border">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Leads</p>
+                      <p className="text-xl font-bold text-foreground">{platform.leadsGenerated}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Revenue</p>
+                      <p className="text-xl font-bold text-secondary">{formatCurrency(Number(platform.revenueGenerated))}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Score</p>
+                      <p className={`text-xl font-bold ${platform.contentScore >= 80 ? 'text-green-600' : platform.contentScore >= 50 ? 'text-amber-600' : 'text-foreground'}`}>{platform.contentScore}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className={`h-full rounded-full ${platform.contentScore >= 80 ? 'bg-green-500' : platform.contentScore >= 50 ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${Math.max(platform.contentScore, 3)}%` }} />
+                  </div>
+                  {platform.lastUpdatedAt && (
+                    <p className="text-xs text-muted-foreground mt-2">Last updated: {formatDate(platform.lastUpdatedAt)}</p>
+                  )}
+                </div>
+
+                <div className="px-6 py-4 flex gap-2 mt-auto">
+                  {externalUrl && (
+                    <a
+                      href={externalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 rounded text-sm font-medium transition-opacity flex items-center justify-center gap-1.5"
+                    >
+                      <ExternalLink size={13} />
+                      {isActive ? 'Manage Listing' : 'Set Up Listing'}
+                    </a>
+                  )}
+                  <Link
+                    href={`/platforms/${platform.id}`}
+                    className="flex-1 px-3 py-2 text-accent hover:bg-accent/10 rounded text-sm font-medium border border-accent transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Eye size={13} />
+                    Checklist
                   </Link>
-                  <p className="text-xs text-muted-foreground">{platform.tier ?? 'Standard'} Plan</p>
                 </div>
-                <span className="px-2 py-1 bg-card text-foreground rounded text-xs font-semibold">{platform.status.replaceAll('_', ' ')}</span>
               </div>
-
-              <div className="px-6 py-4 border-b border-border">
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Leads</p>
-                    <p className="text-xl font-bold text-foreground">{platform.leadsGenerated}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Revenue</p>
-                    <p className="text-xl font-bold text-secondary">{formatCurrency(Number(platform.revenueGenerated))}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Score</p>
-                    <p className="text-xl font-bold text-primary">{platform.contentScore}</p>
-                  </div>
-                </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${platform.contentScore}%` }} />
-                </div>
-                <p className="text-xs text-muted-foreground mt-3">Last updated: {formatDate(platform.lastUpdatedAt)}</p>
-              </div>
-
-              <div className="px-6 py-4 flex gap-2">
-                <button className="flex-1 px-3 py-2 text-accent hover:bg-accent/10 rounded text-sm font-medium border border-accent transition-colors flex items-center justify-center gap-1">
-                  <Eye size={14} />
-                  View Leads
-                </button>
-                <button
-                  onClick={() => updateMutation.mutate({ id: platform.id, status: platform.status === 'ACTIVE' ? 'PENDING_SETUP' : 'ACTIVE' })}
-                  className="flex-1 px-3 py-2 bg-muted text-foreground hover:bg-muted/80 rounded text-sm font-medium transition-colors flex items-center justify-center gap-1"
-                >
-                  <Settings size={14} />
-                  {platform.status === 'ACTIVE' ? 'Pause' : 'Activate'}
-                </button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </DashboardLayout>
