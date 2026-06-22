@@ -1,0 +1,16 @@
+name,phone,email,eventType,eventDate,guestCount,budgetMin,budgetMax,source,notes
+Arjun Mehta,9811045231,arjun.mehta@gmail.com,SOCIAL_EVENTS,2026-11-22,350,25,40,WEDMEGOOD,Bride side family. Wants poolside venue. Follow up by end of month.
+Priya Sharma,9810234567,priya.sharma@outlook.com,SOCIAL_EVENTS,2026-12-15,500,50,80,REFERRAL,Referred by Kapoor family. Budget flexible. Looking for premium package.
+Rohit Kapoor,9899123456,rohit.kapoor@gmail.com,CORPORATE_EVENTS,2026-08-10,200,15,25,GOOGLE,Annual dealer conference. Needs projector setup and breakout rooms.
+Sunita Agarwal,9871234509,sunita.agarwal@yahoo.com,BIRTHDAY_SOCIAL,2026-07-05,150,8,15,META,50th birthday. Wants live music and themed decor.
+Vikram Singh,9811987654,,SOCIAL_EVENTS,2026-10-18,400,30,55,JUSTDIAL,Groom side inquiry. Date not finalised yet. Called twice.
+Neha Joshi,9820341256,neha.joshi@gmail.com,CORPORATE_EVENTS,2026-09-25,300,20,35,GOOGLE,Product launch event. Wants stage setup with LED wall.
+Amit Bansal,9999012345,amit.bansal@company.in,CORPORATE_EVENTS,2026-07-30,120,10,18,DIRECT,Half-day workshop. Needs catering for lunch. Low budget.
+Kavita Reddy,9810567890,kavita.r@gmail.com,SOCIAL_EVENTS,2026-12-05,600,60,90,WEDDINGZ,Large family wedding. Multiple functions over 3 days.
+Deepak Chaudhary,9811876543,,BIRTHDAY_SOCIAL,2026-08-20,80,5,10,PHONE,Kids birthday party. Wants indoor venue with games area.
+Ritu Malhotra,9870123456,ritu.malhotra@gmail.com,SOCIAL_EVENTS,2026-11-08,250,20,30,VENUELOOK,Engagement ceremony. Wants rooftop if available.
+Sanjay Gupta,9899765432,sanjay.gupta@business.com,CORPORATE_EVENTS,2026-09-12,400,35,60,META,Annual awards night. Black tie event with gala dinner.
+Pooja Verma,9820198765,pooja.verma@gmail.com,SOCIAL_EVENTS,2026-10-30,450,40,65,REFERRAL,Wedding reception only. Guest list may increase. Preferred Saturday.
+Manish Tiwari,9811543210,,PROMOTIONAL_EVENTS,2026-07-18,500,25,40,GOOGLE,Brand activation event. Needs open ground and parking for 100 cars.
+Anita Bose,9810876543,anita.bose@gmail.com,BIRTHDAY_SOCIAL,2026-08-01,100,6,12,WALK_IN,Walked in today. 30th birthday. Wants cocktail-style setup.
+Rajesh Khanna,9899234567,rajesh.khanna@corp.in,CORPORATE_EVENTS,2026-09-05,250,20,30,DIRECT,Board retreat. 2-day event. Needs accommodation coordination too.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
+import { seedPropertyDefaults } from '@/lib/seeds/property-defaults'
 
 const registerSchema = z.object({
   name: z.string().min(2),
@@ -66,6 +67,11 @@ export async function POST(req: NextRequest) {
 
       return { user, org, property }
     })
+
+    // Seed templates, platforms, and campaigns in the background — don't block the response
+    seedPropertyDefaults(prisma, result.property.id).catch((err) =>
+      console.error('[register] defaults seed failed:', err)
+    )
 
     return NextResponse.json({ success: true, email: result.user.email }, { status: 201 })
   } catch (err) {
