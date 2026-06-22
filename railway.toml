@@ -4,7 +4,5 @@ buildCommand = "npm run build && cp -r .next/static .next/standalone/.next/stati
 
 [deploy]
 startCommand = "npx prisma db push; HOSTNAME=0.0.0.0 node .next/standalone/server.js"
-healthcheckPath = "/api/health"
-healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
