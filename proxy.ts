@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getToken } from 'next-auth/jwt'
 
 const publicRoutes = ['/login', '/register']
+
+// NextAuth v5 uses 'authjs.session-token' / '__Secure-authjs.session-token'
+// getToken() from next-auth/jwt defaults to the v4 cookie name and will always
+// return null on v5. Read the cookie directly instead — the actual JWT
+// verification happens server-side in each protected route.
+function hasSessionCookie(request: NextRequest): boolean {
+  const secureName = '__Secure-authjs.session-token'
+  const insecureName = 'authjs.session-token'
+  return Boolean(
+    request.cookies.get(secureName)?.value || request.cookies.get(insecureName)?.value
+  )
+}
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route))
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET ?? 'nexora-local-development-secret' })
-  const isAuthenticated = Boolean(token)
+  const isAuthenticated = hasSessionCookie(request)
 
   const forwardedHost = request.headers.get('x-forwarded-host')
   const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
