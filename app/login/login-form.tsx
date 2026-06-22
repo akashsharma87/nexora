@@ -8,7 +8,7 @@ import { Lock, Mail } from 'lucide-react'
 export function LoginForm() {
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get('callbackUrl') ?? '/'
-  const [email, setEmail] = useState('manager@demo.com')
+  const [email, setEmail] = useState('owner@grandbanquets.com')
   const [password, setPassword] = useState('Demo@1234')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)

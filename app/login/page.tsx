@@ -19,8 +19,8 @@ export default function LoginPage() {
         </Suspense>
 
         <div className="mt-4 rounded-lg border border-border bg-card/60 p-4 text-sm text-muted-foreground">
-          Demo accounts: <span className="text-foreground">owner@demo.com</span>,{' '}
-          <span className="text-foreground">manager@demo.com</span>, <span className="text-foreground">exec@demo.com</span>.
+          Demo accounts: <span className="text-foreground">owner@grandbanquets.com</span>,{' '}
+          <span className="text-foreground">manager@grandbanquets.com</span>.
           Password: <span className="text-foreground">Demo@1234</span>.
         </div>
       </div>
