@@ -37,7 +37,7 @@ export async function sendTemplateMessage(
   }
 
   const normalizedPhone = normalizePhone(phone)
-  const url = `${process.env.WATI_API_URL}/api/v1/sendTemplateMessage?whatsappNumber=${normalizedPhone}`
+  const url = `${process.env.WATI_API_URL}/api/v1/sendtemplatemessage?whatsappNumber=${normalizedPhone}`
 
   try {
     const response = await fetch(url, {
@@ -50,12 +50,13 @@ export async function sendTemplateMessage(
       }),
     })
 
+    const responseText = await response.text()
     if (!response.ok) {
-      const error = await response.text()
-      console.error(`[WATI ERROR] Template send failed: ${error}`)
-      return { success: false, error }
+      console.error(`[WATI ERROR] ${response.status} on POST ${url} → ${responseText}`)
+      return { success: false, error: responseText }
     }
 
+    console.log(`[WATI OK] Template sent to ${normalizedPhone}: ${responseText}`)
     return { success: true }
   } catch (err) {
     const error = err instanceof Error ? err.message : 'Unknown error'
@@ -75,7 +76,7 @@ export async function sendSessionMessage(
   }
 
   const normalizedPhone = normalizePhone(phone)
-  const url = `${process.env.WATI_API_URL}/api/v1/sendSessionMessage/${normalizedPhone}`
+  const url = `${process.env.WATI_API_URL}/api/v1/sendsessionmessage/${normalizedPhone}`
 
   try {
     const response = await fetch(url, {
@@ -107,7 +108,7 @@ export async function addWatiContact(
   if (!isConfigured()) return
 
   const normalizedPhone = normalizePhone(phone)
-  const url = `${process.env.WATI_API_URL}/api/v1/addContact/${normalizedPhone}`
+  const url = `${process.env.WATI_API_URL}/api/v1/addcontact/${normalizedPhone}`
 
   await fetch(url, {
     method: 'POST',

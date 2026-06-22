@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
-import { sendTemplateMessage, sendSessionMessage, WATI_TEMPLATES } from '@/lib/whatsapp'
+import { sendTemplateMessage, sendSessionMessage, addWatiContact, WATI_TEMPLATES } from '@/lib/whatsapp'
 
 const whatsappSchema = z.object({
   message: z.string().min(1),
@@ -40,6 +40,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   let result: { success: boolean; error?: string }
 
   if (parsed.data.mode === 'template') {
+    // Ensure contact exists in Wati before sending first template
+    await addWatiContact(parsed.data.phone, lead.name)
     // Send the approved Wati template — works for cold leads who've never messaged
     // Template variables: {{1}} = lead name, {{2}} = hotel name
     result = await sendTemplateMessage(
