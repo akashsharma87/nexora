@@ -6,7 +6,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  output: process.env.RAILWAY_ENVIRONMENT ? 'standalone' : undefined,
+  output: 'standalone',
 }
 
 export default nextConfig
