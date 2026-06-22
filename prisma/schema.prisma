@@ -1,0 +1,486 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id         String     @id @default(cuid())
+  name       String
+  slug       String     @unique
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  properties Property[]
+  users      User[]
+}
+
+model Property {
+  id             String            @id @default(cuid())
+  organizationId String
+  name           String
+  address        String?
+  city           String?
+  phone          String?
+  email          String?
+  logoUrl        String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  users          UserProperty[]
+  leads          Lead[]
+  campaigns      Campaign[]
+  listings       PlatformListing[]
+  templates      MessageTemplate[]
+}
+
+model User {
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  email          String         @unique
+  password       String
+  role           UserRole       @default(EXECUTIVE)
+  phone          String?
+  avatarUrl      String?
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  properties     UserProperty[]
+  assignedLeads  Lead[]         @relation("AssignedLeads")
+  activities     LeadActivity[]
+  tasks          Task[]         @relation("TaskAssignee")
+  sessions       Session[]
+  accounts       Account[]
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  EXECUTIVE
+}
+
+model UserProperty {
+  userId     String
+  propertyId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, propertyId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Lead {
+  id                String               @id @default(cuid())
+  propertyId        String
+  name              String
+  email             String?
+  phone             String
+  eventType         EventType
+  eventDate         DateTime?
+  guestCount        Int?
+  budgetMin         Decimal?
+  budgetMax         Decimal?
+  source            LeadSource
+  stage             LeadStage            @default(NEW)
+  leadScore         Int                  @default(50)
+  notes             String?              @db.Text
+  assignedToId      String?
+  lostReason        String?
+  campaignId        String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  property          Property             @relation(fields: [propertyId], references: [id])
+  assignedTo        User?                @relation("AssignedLeads", fields: [assignedToId], references: [id])
+  activities        LeadActivity[]
+  proposals         Proposal[]
+  tasks             Task[]
+  scheduledMessages ScheduledMessage[]
+  externalSources   LeadExternalSource[]
+}
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  FOLLOW_UP
+  SITE_VISIT
+  PROPOSAL_SENT
+  NEGOTIATION
+  BOOKED
+  LOST
+}
+
+enum EventType {
+  SOCIAL_EVENTS
+  CORPORATE_EVENTS
+  BIRTHDAY_SOCIAL
+  PROMOTIONAL_EVENTS
+  ENTERTAINMENT_EVENTS
+  SEASONAL_THEMATIC
+}
+
+enum LeadSource {
+  WEDMEGOOD
+  WEDDINGZ
+  VENUELOOK
+  WEDDINGBAZAAR
+  GOOGLE
+  META
+  JUSTDIAL
+  WALK_IN
+  REFERRAL
+  PHONE
+  DIRECT
+  OTHER
+}
+
+model LeadActivity {
+  id        String       @id @default(cuid())
+  leadId    String
+  userId    String
+  type      ActivityType
+  content   String       @db.Text
+  metadata  Json?
+  createdAt DateTime     @default(now())
+  lead      Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id])
+}
+
+enum ActivityType {
+  STAGE_CHANGE
+  NOTE
+  CALL_LOGGED
+  WHATSAPP_SENT
+  EMAIL_SENT
+  PROPOSAL_SENT
+  SITE_VISIT_SCHEDULED
+  TASK_CREATED
+  TASK_COMPLETED
+  LEAD_CREATED
+}
+
+model Campaign {
+  id             String         @id @default(cuid())
+  propertyId     String
+  name           String
+  type           CampaignType
+  platforms      CampaignPlatform[]
+  budgetAmount   Decimal
+  spentAmount    Decimal        @default(0)
+  leadsGenerated Int            @default(0)
+  bookingsCount  Int            @default(0)
+  status         CampaignStatus @default(ACTIVE)
+  startDate      DateTime
+  endDate        DateTime?
+  targetAudience Json?
+  keywords       String[]
+  creatives      Json?
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  property       Property       @relation(fields: [propertyId], references: [id])
+}
+
+enum CampaignType {
+  SOCIAL_EVENTS
+  CORPORATE_EVENTS
+  BIRTHDAY_SOCIAL
+  PROMOTIONAL_EVENTS
+  ENTERTAINMENT_EVENTS
+  SEASONAL_THEMATIC
+}
+
+enum CampaignPlatform {
+  META
+  GOOGLE
+  INSTAGRAM
+  LINKEDIN
+  EMAIL
+  WHATSAPP
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model PlatformListing {
+  id               String        @id @default(cuid())
+  propertyId       String
+  platform         ListingPlatform
+  status           ListingStatus @default(ACTIVE)
+  tier             String?
+  profileUrl       String?
+  leadsGenerated   Int           @default(0)
+  revenueGenerated Decimal       @default(0)
+  contentScore     Int           @default(0)
+  contentChecklist Json?
+  lastUpdatedAt    DateTime?
+  lastSyncAt       DateTime?
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  property         Property      @relation(fields: [propertyId], references: [id])
+}
+
+enum ListingPlatform {
+  WEDMEGOOD
+  WEDDINGZ
+  VENUELOOK
+  WEDDINGBAZAAR
+  GOOGLE_BUSINESS
+  JUSTDIAL
+}
+
+enum ListingStatus {
+  ACTIVE
+  INACTIVE
+  PENDING_SETUP
+  SUSPENDED
+}
+
+model MessageTemplate {
+  id         String       @id @default(cuid())
+  propertyId String?
+  name       String
+  type       TemplateType
+  content    String       @db.Text
+  variables  String[]
+  isActive   Boolean      @default(true)
+  sentCount  Int          @default(0)
+  openRate   Decimal      @default(0)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  property   Property?    @relation(fields: [propertyId], references: [id])
+}
+
+enum TemplateType {
+  INITIAL_RESPONSE
+  NURTURE_DAY1
+  NURTURE_DAY3
+  NURTURE_DAY5
+  NURTURE_DAY7
+  PROPOSAL_FOLLOWUP
+  POST_EVENT_DAY3
+  POST_EVENT_DAY30
+  POST_EVENT_DAY90
+  BROADCAST
+  CUSTOM
+}
+
+model AutomationFlow {
+  id         String   @id @default(cuid())
+  propertyId String?
+  name       String
+  trigger    String
+  isActive   Boolean  @default(true)
+  steps      Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model BroadcastCampaign {
+  id          String          @id @default(cuid())
+  propertyId  String
+  name        String
+  templateId  String?
+  message     String          @db.Text
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  status      BroadcastStatus @default(DRAFT)
+  recipients  Int             @default(0)
+  delivered   Int             @default(0)
+  opened      Int             @default(0)
+  responded   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+}
+
+model Proposal {
+  id         String         @id @default(cuid())
+  leadId     String
+  title      String
+  content    String         @db.Text
+  amount     Decimal?
+  eventDate  DateTime?
+  guestCount Int?
+  validUntil DateTime?
+  status     ProposalStatus @default(DRAFT)
+  sentAt     DateTime?
+  viewedAt   DateTime?
+  acceptedAt DateTime?
+  declinedAt DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  lead       Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model Task {
+  id           String   @id @default(cuid())
+  leadId       String?
+  assignedToId String?
+  title        String
+  description  String?
+  dueDate      DateTime?
+  priority     Priority @default(MEDIUM)
+  completed    Boolean  @default(false)
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lead         Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo   User?    @relation("TaskAssignee", fields: [assignedToId], references: [id])
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ─── AUTOMATION EXECUTION ─────────────────────────────────────────────────────
+
+model ScheduledMessage {
+  id           String        @id @default(cuid())
+  leadId       String
+  templateType TemplateType
+  phone        String
+  payload      Json
+  scheduledAt  DateTime
+  sentAt       DateTime?
+  status       MessageStatus @default(PENDING)
+  error        String?       @db.Text
+  retryCount   Int           @default(0)
+  createdAt    DateTime      @default(now())
+  lead         Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledAt])
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+  SKIPPED
+}
+
+// ─── WEBHOOK LOGGING ──────────────────────────────────────────────────────────
+
+model WebhookEvent {
+  id        String   @id @default(cuid())
+  source    String
+  eventType String
+  payload   Json
+  processed Boolean  @default(false)
+  error     String?
+  createdAt DateTime @default(now())
+}
+
+// ─── GOOGLE SHEETS INTEGRATIONS ───────────────────────────────────────────────
+
+model IntegrationConnection {
+  id             String              @id @default(cuid())
+  organizationId String
+  propertyId     String
+  provider       IntegrationProvider
+  name           String
+  source         LeadSource
+  sheetId        String?
+  tabName        String?             @default("Sheet1")
+  headerRow      Int                 @default(1)
+  columnMap      Json
+  status         IntegrationStatus   @default(ACTIVE)
+  lastSyncedAt   DateTime?
+  lastSyncCount  Int                 @default(0)
+  lastSyncStatus String?
+  lastSyncError  String?             @db.Text
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  externalSources LeadExternalSource[]
+}
+
+model LeadExternalSource {
+  id           String               @id @default(cuid())
+  leadId       String
+  connectionId String?
+  provider     IntegrationProvider
+  externalId   String
+  rowHash      String?
+  rawPayload   Json?
+  createdAt    DateTime             @default(now())
+  lead         Lead                 @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  connection   IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalId])
+}
+
+enum IntegrationProvider {
+  GOOGLE_SHEETS
+  CSV
+  WEBSITE_FORM
+  META_LEADS
+  GOOGLE_ADS
+  MANUAL
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+}
