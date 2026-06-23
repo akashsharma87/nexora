@@ -193,15 +193,16 @@ export default function LeadDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!response.ok) throw new Error('Failed to send WhatsApp')
-      return response.json()
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to send WhatsApp')
+      return data
     },
     onSuccess: () => {
       toast.success('WhatsApp sent')
       setShowWhatsApp(false)
       queryClient.invalidateQueries({ queryKey: ['lead', params.id] })
     },
-    onError: () => toast.error('WhatsApp could not be sent'),
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'WhatsApp could not be sent', { duration: 6000 }),
   })
 
   function handleEdit(event: FormEvent<HTMLFormElement>) {

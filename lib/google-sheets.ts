@@ -11,6 +11,16 @@ function getAuth() {
   })
 }
 
+export async function getAvailableTabs(sheetId: string): Promise<string[]> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const response = await sheets.spreadsheets.get({
+    spreadsheetId: sheetId,
+    fields: 'sheets.properties.title',
+  })
+  return (response.data.sheets || []).map((s) => s.properties?.title || '').filter(Boolean)
+}
+
 export function extractSheetId(input: string): string {
   // Accept full URL or raw ID
   const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)

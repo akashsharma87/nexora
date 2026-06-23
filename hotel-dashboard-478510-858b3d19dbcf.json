@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "hotel-dashboard-478510",
+  "private_key_id": "858b3d19dbcf491300b6cfedabdc4da91deda55b",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDMcV6a6tnoBdmf\nlY6W7+I+lAjjMxtdR2GTs4WXUwdQh7a7SlmM5Wi/PzZdYOezmwiIInQkBDi4YWcc\nGzKmm3SiC4tOG9IMq3yVFrZYTaH4mFCBTiBwBjk0eGjc+tD6Ttb6j0YdTsEk5LRt\nfYSkOx6TbWYsnl9G4qjTNArz59FHpk2NKPp2DKoqNp2T07vxnPWegeMdPU++ZaXK\nZHjpvCUmDyrAefyuhKSe6PtbFVE1TCvPrlTO64thDnqLSLYNgY4GeBEFpPv0uDdX\n36QgFuBf+0JDFIWUvHjmnfOFJPwaLL4AIOXEkVtPyj/anZUV3j6+FRAi3OaXHTOI\nVV6mkq7DAgMBAAECggEASLZlrHms6N3zydN6dGp7MECcbJpHuERkCxFFiU2pg1XR\ngwltkjQhriuAXXPS1MlmHm0Km6i4t7NE5fUybZlKwTuT30L70S/IzonWbs+ltPIP\nZ/3ugYllHSlaOoYmf3A8+76rdE8HWOTS20JSQ8sXE95MAcCOKHsDCqMu5hLkFzQG\niQEVqw9gMLWv1bU/hMoI+Fnoza5m95fOSXOtmZODP3XEx0mdWHqcLhf5+YwLM6iR\nIvCwSYlBp5yCgjnfx83zlznoW4tA6Byh8ZN1IBiSXN3MsGfY+PPSisF62bbV1VVN\n+8oIUUxsjUrEk6op+ex2oEg7zKWWWvWqC1ME9tPowQKBgQD4K+3yXIzmqqZgBarZ\nAaOARaF53ez0AKBne9wN96NcMHuKp9/LlWYeUX3YYf4K6BmDaWrJcdkkeHoifKD4\nCN0gA0tyjd76pfmqQsmHj1YMXhh+X1R1LKrYhfU8d9m9rtiFaUudDsXUd63HhXKG\n51DseCW22Mau0D2hv5SUscpzIwKBgQDS5FDCZpDDLclHkT63y9WtxeIOjh/zHlAA\nn8M900FyECISG9lTTwuxViuOUy7sa8E6lkht5N6HGc2Nb9xLl0y3Ujk+L9yf+Sjo\noiVnLVQagz2LKSrKpTwaUzzbQqb3gwztfLoF+XlxO6VDZsP++DcDCNPm073yzGAi\nklfa8sjf4QKBgQDa1fHmq1Hb/VLkjVrQLK++ZqgzTEysBPltBz1OW7YDjwUBiXLA\nlKcNyRJNgmt/tpb42DZAGFI/5LTeQEO5NCe5GO6ovw2GvGDhkC8hiHV6RmcW2H0j\nLhYhBE7x2UV6C/oF+omgnuw3pKjqrXQGHWewfWnUSGc6s4oFXWhpjjVVPQKBgEeM\n1OWP3M+Lij2wxqGfE4kYmSCtEaPvhd8gVSJ1uT+Uv6p7Llm4eNQa0z4/dK0bxfw1\nnq9CNkmJ9JZm/EvdMlcEG43AuU7BPyLmWGBQHbe9DTVYqz8Dnoej9ALD81gIa2tr\npMWAJbbIMMLUa+zmk+uApDwtXMWyl29DTXFoa8ShAoGBAK9QCbiHvl+tIllbTIUw\nqhLPlOuccgnog6ISziBEu0GnBko2VbrAFQvEDyWPQxl0n5dAHL/6INZOnRyIgl+W\nm+DvvdSU8YFi9Fa7BK0EziQKK3mjPoHwNR72glXQ3JwBgX/u5YWnDwK5HQsL3I5R\nmumH1ObAK8ZPdYK1G3gLvgTQ\n-----END PRIVATE KEY-----\n",
+  "client_email": "nexora@hotel-dashboard-478510.iam.gserviceaccount.com",
+  "client_id": "102256052467070921195",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/nexora%40hotel-dashboard-478510.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

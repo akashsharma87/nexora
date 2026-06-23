@@ -44,6 +44,7 @@ export default function IntegrationsPage() {
   const [testResult, setTestResult] = useState<{ headers: string[]; sampleRows: string[][]; suggestedMap: Record<string, string> } | null>(null)
   const [columnMap, setColumnMap] = useState<Record<string, string>>({})
   const [isTesting, setIsTesting] = useState(false)
+  const [availableTabs, setAvailableTabs] = useState<string[]>([])
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: '', provider: 'GOOGLE_SHEETS', source: 'DIRECT',
@@ -74,6 +75,7 @@ export default function IntegrationsPage() {
       setShowForm(false)
       setTestResult(null)
       setColumnMap({})
+      setAvailableTabs([])
       setForm({ name: '', provider: 'GOOGLE_SHEETS', source: 'DIRECT', sheetId: '', tabName: 'Sheet1', headerRow: 1 })
     },
     onError: () => toast.error('Failed to save integration'),
@@ -95,32 +97,31 @@ export default function IntegrationsPage() {
     if (!form.sheetId) { toast.error('Enter a Sheet ID or URL first'); return }
     if (!form.name) { toast.error('Give this connection a name first'); return }
 
-    // Save first so we have an ID to test with
     setIsTesting(true)
     try {
-      const createRes = await fetch('/api/integrations', {
+      const testRes = await fetch('/api/integrations/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, columnMap: {} }),
+        body: JSON.stringify({ sheetId: form.sheetId, tabName: form.tabName, headerRow: form.headerRow }),
       })
-      if (!createRes.ok) throw new Error('Failed to create')
-      const { connection } = await createRes.json()
-
-      const testRes = await fetch(`/api/integrations/${connection.id}/test`, { method: 'POST' })
       const result = await testRes.json()
 
       if (!testRes.ok) {
-        toast.error(result.error || 'Test failed')
-        await fetch(`/api/integrations/${connection.id}`, { method: 'DELETE' })
+        if (result.availableTabs?.length) {
+          setAvailableTabs(result.availableTabs)
+          toast.error(`Tab not found. Select from the dropdown below.`, { duration: 5000 })
+        } else {
+          toast.error(result.error || 'Test failed')
+        }
         return
       }
+      setAvailableTabs([])
 
-      setTestResult({ ...result, connectionId: connection.id })
+      setTestResult(result)
       setColumnMap(result.suggestedMap || {})
-      queryClient.invalidateQueries({ queryKey: ['integrations'] })
       toast.success(`Found ${result.headers.length} columns. Confirm the mapping below.`)
-    } catch (err) {
-      toast.error('Test failed')
+    } catch {
+      toast.error('Test failed — check the Sheet ID and access permissions')
     } finally {
       setIsTesting(false)
     }
@@ -129,11 +130,15 @@ export default function IntegrationsPage() {
   async function handleSync(connectionId: string) {
     setSyncingId(connectionId)
     try {
-      const r = await fetch(`/api/integrations/${connectionId}/sync`, { method: 'POST' })
+      const r = await fetch('/api/integrations/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connectionId }),
+      })
       const result = await r.json()
       if (!r.ok) { toast.error(result.error || 'Sync failed'); return }
       queryClient.invalidateQueries({ queryKey: ['integrations'] })
-      toast.success(`Sync complete: ${result.created} imported, ${result.skipped} skipped`)
+      toast.success(`Sync complete: ${result.created} new leads imported, ${result.skipped} duplicates skipped`)
     } catch {
       toast.error('Sync failed')
     } finally {
@@ -198,12 +203,25 @@ export default function IntegrationsPage() {
               </div>
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Tab Name</label>
-                <input
-                  value={form.tabName}
-                  onChange={(e) => setForm({ ...form, tabName: e.target.value })}
-                  placeholder="Sheet1"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500"
-                />
+                {availableTabs.length > 0 ? (
+                  <select
+                    value={form.tabName}
+                    onChange={(e) => { setForm({ ...form, tabName: e.target.value }); setAvailableTabs([]) }}
+                    className="w-full bg-zinc-800 border border-amber-500/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                  >
+                    {availableTabs.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    value={form.tabName}
+                    onChange={(e) => setForm({ ...form, tabName: e.target.value })}
+                    placeholder="Sheet1"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500"
+                  />
+                )}
+                {availableTabs.length > 0 && (
+                  <p className="text-xs text-amber-400 mt-1">Select the correct tab and test again.</p>
+                )}
               </div>
               <div className="col-span-2">
                 <label className="block text-xs text-zinc-400 mb-1">Google Sheet URL or ID *</label>
