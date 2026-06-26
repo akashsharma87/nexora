@@ -12,14 +12,18 @@ export async function POST(request: NextRequest) {
 
   const callingServerUrl = process.env.CALLING_SERVER_URL
   if (!callingServerUrl) {
+    console.error('[twiml] CALLING_SERVER_URL not configured')
     return new NextResponse('CALLING_SERVER_URL not configured', { status: 500 })
   }
 
-  // Build WebSocket URL with lead context so calling-server can personalise the prompt
+  // Build WebSocket URL — strip any protocol then always use wss://
+  const host = callingServerUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
   const wsParams = new URLSearchParams({ callId, name, eventType, propertyName })
   if (eventDate) wsParams.set('eventDate', eventDate)
 
-  const wsUrl = `${callingServerUrl.replace(/^http/, 'ws')}/stream?${wsParams}`
+  const wsUrl = `wss://${host}/stream?${wsParams}`
+
+  console.log(`[twiml] callId=${callId} lead="${name}" wsUrl=${wsUrl}`)
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -27,6 +31,8 @@ export async function POST(request: NextRequest) {
     <Stream url="${wsUrl}" />
   </Connect>
 </Response>`
+
+  console.log('[twiml] returning:', twiml.replace(/\s+/g, ' '))
 
   return new NextResponse(twiml, {
     headers: { 'Content-Type': 'text/xml' },

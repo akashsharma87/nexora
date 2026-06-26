@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
   if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
 
   if (immediate) {
-    // Create and dial immediately
+    console.log(`[ai-calls POST] Initiating immediate call — leadId=${leadId} lead="${lead.name}" phone=${lead.phone}`)
     const aiCall = await prisma.aiCall.create({
       data: {
         leadId,
@@ -65,11 +65,12 @@ export async function POST(request: NextRequest) {
     })
     try {
       const sid = await initiateAiCall(aiCall.id)
+      console.log(`[ai-calls POST] ✅ Call initiated — aiCallId=${aiCall.id} callSid=${sid}`)
       return NextResponse.json({ aiCallId: aiCall.id, callSid: sid }, { status: 201 })
     } catch (err) {
       await prisma.aiCall.update({ where: { id: aiCall.id }, data: { status: 'FAILED' } })
-      console.error('[ai-calls POST]', err)
-      return NextResponse.json({ error: 'Failed to initiate call' }, { status: 500 })
+      console.error('[ai-calls POST] ❌ initiateAiCall failed:', err)
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to initiate call' }, { status: 500 })
     }
   }
 
