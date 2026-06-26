@@ -67,8 +67,8 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
   const wsUrl = `wss://${wsHost}/stream?${wsParams}`
   console.log(`[ai-calling] wsUrl=${wsUrl}`)
 
-  // Pass TwiML inline so Twilio never needs to callback nexora for it
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${wsUrl}" /></Connect></Response>`
+  // TEST: plain <Say> to confirm TwiML executes on trial outbound calls
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Hello! This is Priya from Ajanta Banquets. TwiML is working. Connecting AI now.</Say><Connect><Stream url="${wsUrl}" /></Connect></Response>`
 
   const appUrl = process.env.APP_URL!
   const statusCallback = `${appUrl}/api/webhooks/twilio?callId=${aiCall.id}`
