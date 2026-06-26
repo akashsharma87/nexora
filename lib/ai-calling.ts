@@ -71,6 +71,7 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
     to: formatPhoneE164(aiCall.lead.phone),
     from: process.env.TWILIO_PHONE_NUMBER!,
     url: twimlUrl,
+    method: 'GET',
     statusCallback,
     statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
     statusCallbackMethod: 'POST',
