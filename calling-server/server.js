@@ -67,6 +67,9 @@ wss.on('connection', (twilioWs, req) => {
         modalities: ['audio', 'text'],
       },
     }))
+
+    // Trigger Priya to speak the opening line immediately
+    openaiWs.send(JSON.stringify({ type: 'response.create' }))
   })
 
   // ── OpenAI → Twilio ─────────────────────────────────────────────────────────
