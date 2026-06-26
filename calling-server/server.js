@@ -16,8 +16,27 @@ if (!CALLING_SERVER_SECRET) throw new Error('CALLING_SERVER_SECRET is required')
 const app = express()
 app.get('/health', (_, res) => res.json({ ok: true, service: 'nexora-calling-server' }))
 
+// Catch-all to log every HTTP request hitting the server
+app.use((req, res, next) => {
+  console.log(`[http] ${req.method} ${req.url}`)
+  next()
+})
+
 const server = http.createServer(app)
-const wss = new WebSocket.Server({ server, path: '/stream' })
+
+// Log every WebSocket upgrade attempt before the ws library handles it
+server.on('upgrade', (req) => {
+  console.log(`[ws-upgrade] path="${req.url}" from=${req.headers['x-forwarded-for'] || req.socket.remoteAddress} upgrade="${req.headers['upgrade']}"`)
+})
+
+const wss = new WebSocket.Server({
+  server,
+  path: '/stream',
+  verifyClient: ({ req }, cb) => {
+    console.log(`[ws-verify] accepting connection — path="${req.url}"`)
+    cb(true)
+  },
+})
 
 wss.on('connection', (twilioWs, req) => {
   const url = new URL(req.url, 'http://x')

@@ -23,6 +23,8 @@ export async function POST(request: NextRequest) {
   const duration = parseInt(body?.get('CallDuration')?.toString() ?? '0') || null
   const recordingUrl = body?.get('RecordingUrl')?.toString() ?? null
 
+  console.log(`[twilio-webhook] callId=${callId} callSid=${callSid} status=${twilioStatus} duration=${duration}`)
+
   // Log raw webhook
   await prisma.webhookEvent.create({
     data: {
