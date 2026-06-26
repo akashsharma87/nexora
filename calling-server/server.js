@@ -59,7 +59,6 @@ wss.on('connection', (twilioWs, req) => {
     {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
-        'OpenAI-Beta': 'realtime=v1',
       },
     }
   )
