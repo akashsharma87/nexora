@@ -52,26 +52,32 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
     select: { name: true },
   })
 
-  const params = new URLSearchParams({
+  const callingServerUrl = process.env.CALLING_SERVER_URL ?? ''
+  const wsHost = callingServerUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
+  const wsParams = new URLSearchParams({
     callId: aiCall.id,
     name: aiCall.lead.name,
     eventType: aiCall.lead.eventType,
     propertyName: property?.name ?? 'our venue',
   })
   if (aiCall.lead.eventDate) {
-    params.set('eventDate', aiCall.lead.eventDate.toISOString().split('T')[0])
+    wsParams.set('eventDate', aiCall.lead.eventDate.toISOString().split('T')[0])
   }
 
+  const wsUrl = `wss://${wsHost}/stream?${wsParams}`
+  console.log(`[ai-calling] wsUrl=${wsUrl}`)
+
+  // Pass TwiML inline so Twilio never needs to callback nexora for it
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${wsUrl}" /></Connect></Response>`
+
   const appUrl = process.env.APP_URL!
-  const twimlUrl = `${appUrl}/api/webhooks/twilio-twiml?${params}`
   const statusCallback = `${appUrl}/api/webhooks/twilio?callId=${aiCall.id}`
 
   const client = getTwilioClient()
   const call = await client.calls.create({
     to: formatPhoneE164(aiCall.lead.phone),
     from: process.env.TWILIO_PHONE_NUMBER!,
-    url: twimlUrl,
-    method: 'GET',
+    twiml,
     statusCallback,
     statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
     statusCallbackMethod: 'POST',
