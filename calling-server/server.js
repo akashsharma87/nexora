@@ -46,7 +46,7 @@ wss.on('connection', (twilioWs, req) => {
   )
 
   openaiWs.on('open', () => {
-    console.log(`[call:${callId}] OpenAI Realtime connected`)
+    console.log(`[call:${callId}] ✅ OpenAI Realtime connected — sending session.update`)
 
     openaiWs.send(JSON.stringify({
       type: 'session.update',
@@ -68,37 +68,57 @@ wss.on('connection', (twilioWs, req) => {
         modalities: ['audio', 'text'],
       },
     }))
-
-    // response.create is sent after session.updated confirmation below
+    console.log(`[call:${callId}] session.update sent`)
   })
 
   // ── OpenAI → Twilio ─────────────────────────────────────────────────────────
+  let audioDeltaCount = 0
+
   openaiWs.on('message', (raw) => {
     let event
     try { event = JSON.parse(raw) } catch { return }
 
+    // Log every event type (skip noisy media chunks after first 5 audio deltas)
+    if (event.type !== 'response.audio.delta' || audioDeltaCount <= 5) {
+      console.log(`[call:${callId}] OpenAI event: ${event.type}${event.error ? ' — ' + JSON.stringify(event.error) : ''}`)
+    }
+
     // Session is ready — trigger Priya's opening line
     if (event.type === 'session.updated') {
+      console.log(`[call:${callId}] ✅ session.updated received — sending response.create`)
       openaiWs.send(JSON.stringify({ type: 'response.create' }))
     }
 
     // Stream AI audio back to the lead's phone — buffer if streamSid not yet set
     if (event.type === 'response.audio.delta' && event.delta) {
+      audioDeltaCount++
       if (!streamSid) {
         audioBuffer.push(event.delta)
+        if (audioDeltaCount <= 5 || audioDeltaCount % 20 === 0) {
+          console.log(`[call:${callId}] 🔵 Audio delta #${audioDeltaCount} buffered (no streamSid yet) — buffer size: ${audioBuffer.length}`)
+        }
       } else {
+        if (audioDeltaCount <= 5) {
+          console.log(`[call:${callId}] 🟢 Audio delta #${audioDeltaCount} sent to Twilio`)
+        }
         twilioWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload: event.delta } }))
       }
     }
 
+    if (event.type === 'response.audio.done') {
+      console.log(`[call:${callId}] 🏁 OpenAI audio done — total deltas: ${audioDeltaCount}`)
+    }
+
     // Collect transcript
     if (event.type === 'response.audio_transcript.done' && event.transcript) {
+      console.log(`[call:${callId}] 🗣️  Priya said: "${event.transcript}"`)
       transcript.push({ role: 'assistant', content: event.transcript, ts: Date.now() })
     }
     if (
       event.type === 'conversation.item.input_audio_transcription.completed' &&
       event.transcript
     ) {
+      console.log(`[call:${callId}] 👤 Lead said: "${event.transcript}"`)
       transcript.push({ role: 'user', content: event.transcript, ts: Date.now() })
     }
 
@@ -118,12 +138,12 @@ wss.on('connection', (twilioWs, req) => {
     }
 
     if (event.type === 'error') {
-      console.error(`[call:${callId}] OpenAI error:`, event.error)
+      console.error(`[call:${callId}] ❌ OpenAI error:`, JSON.stringify(event.error))
     }
   })
 
-  openaiWs.on('close', () => {
-    console.log(`[call:${callId}] OpenAI Realtime disconnected`)
+  openaiWs.on('close', (code, reason) => {
+    console.log(`[call:${callId}] OpenAI Realtime disconnected — code: ${code}, reason: ${reason?.toString() || 'none'}`)
     if (!outcomeReported && callId) {
       reportOutcomeToNexora(
         callId,
@@ -134,7 +154,7 @@ wss.on('connection', (twilioWs, req) => {
   })
 
   openaiWs.on('error', (err) => {
-    console.error(`[call:${callId}] OpenAI WS error:`, err.message)
+    console.error(`[call:${callId}] ❌ OpenAI WS error:`, err.message)
   })
 
   // ── Twilio → OpenAI ─────────────────────────────────────────────────────────
@@ -142,15 +162,21 @@ wss.on('connection', (twilioWs, req) => {
     let event
     try { event = JSON.parse(raw) } catch { return }
 
+    if (event.event === 'connected') {
+      console.log(`[call:${callId}] 📞 Twilio connected event received`)
+    }
+
     if (event.event === 'start') {
       streamSid = event.start.streamSid
-      console.log(`[call:${callId}] Stream started — SID: ${streamSid}, buffered chunks: ${audioBuffer.length}`)
-      // Flush any audio that arrived before streamSid was set
+      console.log(`[call:${callId}] ✅ Twilio stream started — SID: ${streamSid}, buffered chunks to flush: ${audioBuffer.length}`)
       if (audioBuffer.length > 0) {
         audioBuffer.forEach(delta => {
           twilioWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload: delta } }))
         })
+        console.log(`[call:${callId}] 🟢 Flushed ${audioBuffer.length} buffered audio chunks to Twilio`)
         audioBuffer = []
+      } else {
+        console.log(`[call:${callId}] ⚠️  No buffered audio to flush — OpenAI may not have responded yet`)
       }
     }
 
