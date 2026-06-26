@@ -68,14 +68,18 @@ wss.on('connection', (twilioWs, req) => {
       },
     }))
 
-    // Trigger Priya to speak the opening line immediately
-    openaiWs.send(JSON.stringify({ type: 'response.create' }))
+    // response.create is sent after session.updated confirmation below
   })
 
   // ── OpenAI → Twilio ─────────────────────────────────────────────────────────
   openaiWs.on('message', (raw) => {
     let event
     try { event = JSON.parse(raw) } catch { return }
+
+    // Session is ready — trigger Priya's opening line
+    if (event.type === 'session.updated') {
+      openaiWs.send(JSON.stringify({ type: 'response.create' }))
+    }
 
     // Stream AI audio back to the lead's phone
     if (event.type === 'response.audio.delta' && event.delta && streamSid) {
