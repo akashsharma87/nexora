@@ -6,3 +6,7 @@ buildCommand = "npm run build && cp -r .next/static .next/standalone/.next/stati
 startCommand = "npx prisma db push; HOSTNAME=0.0.0.0 node .next/standalone/server.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+
+[[cron]]
+schedule = "* * * * *"
+command = "curl -s -X POST $APP_URL/api/cron/process-calls -H 'x-cron-secret: $CRON_SECRET'"

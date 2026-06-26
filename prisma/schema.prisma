@@ -133,6 +133,7 @@ model Lead {
   tasks             Task[]
   scheduledMessages ScheduledMessage[]
   externalSources   LeadExternalSource[]
+  aiCalls           AiCall[]
 }
 
 enum LeadStage {
@@ -483,4 +484,51 @@ enum IntegrationStatus {
   ACTIVE
   PAUSED
   ERROR
+}
+
+// ─── AI VOICE CALLING ─────────────────────────────────────────────────────────
+
+model AiCall {
+  id             String        @id @default(cuid())
+  leadId         String
+  propertyId     String
+  callSid        String?       @unique
+  status         AiCallStatus  @default(PENDING)
+  outcome        CallOutcome?
+  qualifiedScore Int?
+  transcript     Json?
+  recordingUrl   String?
+  duration       Int?
+  notes          String?       @db.Text
+  scheduledAt    DateTime?
+  callStartedAt  DateTime?
+  callEndedAt    DateTime?
+  attempts       Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  lead           Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, status])
+  @@index([leadId])
+  @@index([status, scheduledAt])
+}
+
+enum AiCallStatus {
+  PENDING
+  DIALING
+  IN_PROGRESS
+  COMPLETED
+  NO_ANSWER
+  BUSY
+  FAILED
+  CANCELLED
+}
+
+enum CallOutcome {
+  QUALIFIED
+  NOT_QUALIFIED
+  CALLBACK
+  WRONG_NUMBER
+  VOICEMAIL
+  UNKNOWN
 }

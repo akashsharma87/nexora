@@ -15,6 +15,7 @@ import {
   ChevronDown,
   FileText,
   Link2,
+  Phone,
 } from 'lucide-react'
 
 export function Sidebar() {
@@ -32,6 +33,7 @@ export function Sidebar() {
     { icon: BarChart3, label: 'Analytics', href: '/analytics', id: 'analytics' },
     { icon: Globe, label: 'Platforms', href: '/platforms', id: 'platforms' },
     { icon: FileText, label: 'Proposals', href: '/proposals', id: 'proposals' },
+    { icon: Phone, label: 'AI Calls', href: '/ai-calls', id: 'ai-calls' },
   ]
 
   const bottomMenuItems = [

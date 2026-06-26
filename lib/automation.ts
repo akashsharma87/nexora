@@ -20,12 +20,23 @@ export async function scheduleLeadNurtureSequence(params: {
   const messages = [
     {
       templateType: 'INITIAL_RESPONSE' as const,
-      // 2 minutes after lead creation
-      scheduledAt: new Date(now.getTime() + 2 * 60 * 1000),
+      // 10 minutes after lead creation (AI call will run at 5 min, WA follows after)
+      scheduledAt: new Date(now.getTime() + 10 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.INITIAL_RESPONSE,
         parameters: templateParams,
         message: `Hi ${leadName}! 🎉 Thank you for your enquiry about ${eventType} at ${propertyName}. We would love to host your special occasion! I am attaching our banquet brochure and pricing details. Our hall accommodates 50–500 guests with stunning décor options. Can we schedule a quick call or venue visit? Reply YES to confirm. — ${managerName}`,
+      },
+    },
+    {
+      templateType: 'NURTURE_DAY1' as const,
+      // Day 1: venue photos + packages (image-capable template)
+      scheduledAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      payload: {
+        templateName: (WATI_TEMPLATES as Record<string, string>)['NURTURE_DAY1'] ?? 'nexora_nurture_day1',
+        parameters: templateParams,
+        message: `Hi ${leadName}! 🏛️ Here are some stunning photos of ${propertyName} and our latest ${eventType} packages. We have beautiful setups for 50–500 guests. Would you like to see more or schedule a venue tour? — ${managerName}`,
+        imageUrl: null, // set a Cloudflare R2 / CDN URL per property when available
       },
     },
     {
@@ -127,6 +138,28 @@ export async function schedulePostEventSequence(params: {
       scheduledAt: m.scheduledAt,
       payload: m.payload as unknown as Prisma.InputJsonValue,
     })),
+  })
+}
+
+export async function scheduleAiCall(params: {
+  leadId: string
+  propertyId: string
+  delayMs?: number
+}): Promise<void> {
+  const { leadId, propertyId, delayMs = 5 * 60 * 1000 } = params
+
+  const existing = await prisma.aiCall.findFirst({
+    where: { leadId, status: { in: ['PENDING', 'DIALING', 'IN_PROGRESS'] } },
+  })
+  if (existing) return
+
+  await prisma.aiCall.create({
+    data: {
+      leadId,
+      propertyId,
+      status: 'PENDING',
+      scheduledAt: new Date(Date.now() + delayMs),
+    },
   })
 }
 

@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client'
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
 import { calculateLeadScore, leadCreateSchema } from '@/lib/validations/lead'
-import { scheduleLeadNurtureSequence } from '@/lib/automation'
+import { scheduleLeadNurtureSequence, scheduleAiCall } from '@/lib/automation'
 import { addWatiContact } from '@/lib/whatsapp'
 import { sendEmail, newLeadEmailHtml } from '@/lib/email'
 import { eventTypeLabels, sourceLabels } from '@/lib/format'
@@ -115,6 +115,9 @@ export async function POST(request: NextRequest) {
         propertyName: property?.name || 'our venue',
         managerName: manager?.name || 'our team',
       })
+
+      // Schedule AI qualification call (5 min after lead creation)
+      await scheduleAiCall({ leadId: lead.id, propertyId: lead.propertyId })
 
       if (manager?.email) {
         await sendEmail({

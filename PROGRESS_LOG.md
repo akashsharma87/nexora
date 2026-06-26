@@ -36,27 +36,34 @@ Updated after each session.
 
 ## Session 5 — June 23, 2026
 
-### Current railway.env gaps (production broken until fixed)
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` — missing from Railway, Sheets integration will fail with "service account not configured" error
-- `OPENAI_API_KEY` = placeholder `"your-openai-key-here"` — AI proposal generation non-functional in production
-- SMTP not configured — email notifications won't send
+### Google Sheets integration — ✅ Working locally
+- Fixed Turbopack nested-route issue: created top-level `app/api/integrations/test/route.ts` and `sync/route.ts` (stateless, accept params in body)
+- Added `getAvailableTabs()` to `lib/google-sheets.ts`; test endpoint returns tab list on wrong tab name; UI shows dropdown
+- Google service account vars in `.env.local` (highest priority); `.env` typo `GOOGLE_SERVICE_ACCOUNT_EMAI` fixed
+- Read-only enforced at OAuth scope level (`spreadsheets.readonly`) in `lib/google-sheets.ts:9`
+- Sheet "citadel meta" (Meta leads) connected and mapped — 13 columns
 
-### Google Sheets key structure: ✅ Correct
-- Service account: `nexora@hotel-dashboard-478510.iam.gserviceaccount.com` (project: `hotel-dashboard-478510`)
-- `.env` stores key with literal `\n` sequences; `lib/google-sheets.ts:4` does `.replace(/\\n/g, '\n')` — correct pattern
-- Credentials need to be set in Railway dashboard (Variables tab handles multi-line without escaping issues)
-
-### Next actions
-- Add Google service account vars to Railway (see above)
-- Test Sheets integration end-to-end: Settings → Integrations → Add connection → Test → Sync
-- Client instruction: share their Google Sheet with `nexora@hotel-dashboard-478510.iam.gserviceaccount.com` (Viewer)
+### Wati WhatsApp — ✅ API wired, blocked on credits
+- Root cause found: wrong API URL (`https://live-102339.wati.io` is the web UI; correct URL is `https://live-mt-server.wati.io/102339`)
+- Old token format `wati_UUID.JWT` replaced with proper JWT from Wati dashboard (Settings → API)
+- `.env` now: `WATI_API_URL="https://live-mt-server.wati.io/102339"`, `WATI_API_KEY="eyJhbGci..."`
+- Template `nexora_initial_response` confirmed to exist in Wati; phone validation passes
+- Only remaining blocker: **Wati account needs credits top-up** (error: "Not enough credits to send the message")
+- Fixed URL casing: `addcontact` → `addContact`, `sendsessionmessage` → `sendSessionMessage`
+- Template names now configurable via env vars (`WATI_TEMPLATE_INITIAL_RESPONSE`, etc.)
+- Error messages from Wati now surface directly in the UI toast
 
 ---
 
+## Production gaps (Railway) — not yet fixed
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` missing from Railway env
+- `OPENAI_API_KEY` = placeholder — AI proposal generation non-functional
+- SMTP not configured — email stubs active
+- Railway Cron job not set up — endpoint `POST /api/cron/process-messages` exists, needs Cron service
+
 ## What's Stubbed / Not Yet Wired
-- SMTP email — `lib/email.ts` ready, stubs until SMTP env vars set
-- OpenAI proposal generation — `lib/openai.ts` ready with rule-based fallback, needs real `OPENAI_API_KEY`
-- Wati templates need Meta approval before template messages work (session message fallback active)
-- Railway Cron job — endpoint exists, needs Railway Cron service configured (`* * * * *` → `POST /api/cron/process-messages` with `x-cron-secret` header)
-- Platform content score checklist — schema field `contentChecklist` not yet added to Prisma
+- SMTP: `lib/email.ts` ready, needs SMTP env vars
+- OpenAI: `lib/openai.ts` ready with rule-based fallback, needs `OPENAI_API_KEY`
+- Railway Cron: `* * * * *` → `POST /api/cron/process-messages` with `x-cron-secret` header
+- Platform content score checklist — `contentChecklist` schema field not yet added
 - Source-to-campaign attribution on lead create form — endpoint exists, UI dropdown not wired
