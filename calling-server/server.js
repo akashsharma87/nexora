@@ -30,6 +30,7 @@ wss.on('connection', (twilioWs, req) => {
   console.log(`[call:${callId}] New Twilio connection — lead: ${leadName}`)
 
   let streamSid = null
+  let audioBuffer = []
   const transcript = []
   let outcomeReported = false
 
@@ -81,13 +82,13 @@ wss.on('connection', (twilioWs, req) => {
       openaiWs.send(JSON.stringify({ type: 'response.create' }))
     }
 
-    // Stream AI audio back to the lead's phone
-    if (event.type === 'response.audio.delta' && event.delta && streamSid) {
-      twilioWs.send(JSON.stringify({
-        event: 'media',
-        streamSid,
-        media: { payload: event.delta },
-      }))
+    // Stream AI audio back to the lead's phone — buffer if streamSid not yet set
+    if (event.type === 'response.audio.delta' && event.delta) {
+      if (!streamSid) {
+        audioBuffer.push(event.delta)
+      } else {
+        twilioWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload: event.delta } }))
+      }
     }
 
     // Collect transcript
@@ -143,7 +144,14 @@ wss.on('connection', (twilioWs, req) => {
 
     if (event.event === 'start') {
       streamSid = event.start.streamSid
-      console.log(`[call:${callId}] Stream started — SID: ${streamSid}`)
+      console.log(`[call:${callId}] Stream started — SID: ${streamSid}, buffered chunks: ${audioBuffer.length}`)
+      // Flush any audio that arrived before streamSid was set
+      if (audioBuffer.length > 0) {
+        audioBuffer.forEach(delta => {
+          twilioWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload: delta } }))
+        })
+        audioBuffer = []
+      }
     }
 
     if (event.event === 'media' && openaiWs.readyState === WebSocket.OPEN) {
