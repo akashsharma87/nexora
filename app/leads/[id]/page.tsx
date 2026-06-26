@@ -5,7 +5,7 @@ import { FormEvent, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, CheckSquare, Edit2, Loader2, MessageSquare, Plus, Save, Send, Square, X } from 'lucide-react'
+import { ArrowLeft, CheckSquare, Edit2, Loader2, MessageSquare, Phone, Plus, Save, Send, Square, X } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { eventTypeLabels, formatCurrency, formatDate, leadStageLabels, sourceLabels } from '@/lib/format'
@@ -184,6 +184,24 @@ export default function LeadDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['lead', params.id] })
     },
     onError: () => toast.error('Could not complete task'),
+  })
+
+  const aiCallMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/ai-calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId: params.id, immediate: true }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to initiate call')
+      return data
+    },
+    onSuccess: () => {
+      toast.success('AI call initiated — Priya is calling the lead now')
+      queryClient.invalidateQueries({ queryKey: ['lead', params.id] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Call could not be initiated', { duration: 6000 }),
   })
 
   const sendWhatsAppMutation = useMutation({
@@ -535,7 +553,17 @@ export default function LeadDetailPage() {
                   Activity Timeline
                 </h2>
 
-                <div className="mb-4">
+                <div className="mb-4 space-y-2">
+                  <button
+                    onClick={() => aiCallMutation.mutate()}
+                    disabled={aiCallMutation.isPending}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted w-full justify-center disabled:opacity-60"
+                  >
+                    {aiCallMutation.isPending
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Phone className="h-4 w-4 text-blue-500" />}
+                    {aiCallMutation.isPending ? 'Calling...' : 'Call with AI'}
+                  </button>
                   {!showWhatsApp ? (
                     <button
                       onClick={openWhatsApp}
