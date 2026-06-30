@@ -24,10 +24,18 @@ function buildTwiml(request: NextRequest): NextResponse {
 
   console.log(`[twiml] wsUrl=${wsUrl}`)
 
+  // Escape XML-special chars — the `&` query-string separators are invalid raw
+  // inside an XML attribute and make Twilio reject the TwiML ("application error").
+  const wsUrlXml = wsUrl
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${wsUrl}" />
+    <Stream url="${wsUrlXml}" />
   </Connect>
 </Response>`
 
