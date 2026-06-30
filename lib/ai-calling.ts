@@ -54,28 +54,32 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
 
   const callingServerUrl = process.env.CALLING_SERVER_URL ?? ''
   const wsHost = callingServerUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
-  const wsParams = new URLSearchParams({
-    callId: aiCall.id,
-    name: aiCall.lead.name,
-    eventType: aiCall.lead.eventType,
-    propertyName: property?.name ?? 'our venue',
-  })
-  if (aiCall.lead.eventDate) {
-    wsParams.set('eventDate', aiCall.lead.eventDate.toISOString().split('T')[0])
-  }
-
-  const wsUrl = `wss://${wsHost}/stream?${wsParams}`
+  const wsUrl = `wss://${wsHost}/stream`
   console.log(`[ai-calling] wsUrl=${wsUrl}`)
 
-  // Escape XML-special chars — the `&` query-string separators are invalid raw
-  // inside an XML attribute and make Twilio reject the TwiML ("application error").
-  const wsUrlXml = wsUrl
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  const xmlEsc = (v: string) =>
+    v
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
 
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${wsUrlXml}" /></Connect></Response>`
+  // Lead context is passed via <Parameter> child elements — Twilio does not
+  // reliably forward query strings on the Stream URL.
+  const params: [string, string][] = [
+    ['callId', aiCall.id],
+    ['name', aiCall.lead.name],
+    ['eventType', aiCall.lead.eventType],
+    ['propertyName', property?.name ?? 'our venue'],
+  ]
+  if (aiCall.lead.eventDate) {
+    params.push(['eventDate', aiCall.lead.eventDate.toISOString().split('T')[0]])
+  }
+  const paramXml = params
+    .map(([k, v]) => `<Parameter name="${k}" value="${xmlEsc(v)}" />`)
+    .join('')
+
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${wsUrl}">${paramXml}</Stream></Connect></Response>`
 
   const appUrl = process.env.APP_URL!
   const statusCallback = `${appUrl}/api/webhooks/twilio?callId=${aiCall.id}`

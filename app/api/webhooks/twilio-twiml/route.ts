@@ -17,25 +17,34 @@ function buildTwiml(request: NextRequest): NextResponse {
   }
 
   const host = callingServerUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
-  const wsParams = new URLSearchParams({ callId, name, eventType, propertyName })
-  if (eventDate) wsParams.set('eventDate', eventDate)
-
-  const wsUrl = `wss://${host}/stream?${wsParams}`
+  const wsUrl = `wss://${host}/stream`
 
   console.log(`[twiml] wsUrl=${wsUrl}`)
 
-  // Escape XML-special chars — the `&` query-string separators are invalid raw
-  // inside an XML attribute and make Twilio reject the TwiML ("application error").
-  const wsUrlXml = wsUrl
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  const xmlEsc = (v: string) =>
+    v
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+
+  // Lead context is passed via <Parameter> child elements — Twilio does not
+  // reliably forward query strings on the Stream URL.
+  const params: [string, string][] = [
+    ['callId', callId],
+    ['name', name],
+    ['eventType', eventType],
+    ['propertyName', propertyName],
+  ]
+  if (eventDate) params.push(['eventDate', eventDate])
+  const paramXml = params
+    .map(([k, v]) => `<Parameter name="${k}" value="${xmlEsc(v)}" />`)
+    .join('')
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${wsUrlXml}" />
+    <Stream url="${wsUrl}">${paramXml}</Stream>
   </Connect>
 </Response>`
 

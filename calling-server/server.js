@@ -39,12 +39,15 @@ const wss = new WebSocket.Server({
 })
 
 wss.on('connection', (twilioWs, req) => {
+  // Params arrive via <Parameter> child elements in Twilio's `start` event
+  // (customParameters). Twilio does not reliably forward query strings on the
+  // Stream URL, so the query string below is only a fallback.
   const url = new URL(req.url, 'http://x')
-  const callId = url.searchParams.get('callId') || null
-  const leadName = url.searchParams.get('name') || 'Sir/Madam'
-  const eventType = formatEventType(url.searchParams.get('eventType') || 'event')
-  const propertyName = url.searchParams.get('propertyName') || 'our venue'
-  const eventDate = url.searchParams.get('eventDate') || null
+  let callId = url.searchParams.get('callId') || null
+  let leadName = url.searchParams.get('name') || 'Sir/Madam'
+  let eventType = formatEventType(url.searchParams.get('eventType') || 'event')
+  let propertyName = url.searchParams.get('propertyName') || 'our venue'
+  let eventDate = url.searchParams.get('eventDate') || null
 
   console.log(`[call:${callId}] New Twilio connection — lead: ${leadName}`)
 
@@ -52,10 +55,13 @@ wss.on('connection', (twilioWs, req) => {
   let audioBuffer = []
   const transcript = []
   let outcomeReported = false
+  let openaiReady = false
+  let started = false
+  let sessionConfigured = false
 
   // ── Open OpenAI Realtime WebSocket ──────────────────────────────────────────
   const openaiWs = new WebSocket(
-    'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17',
+    'wss://api.openai.com/v1/realtime?model=gpt-realtime',
     {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -63,8 +69,12 @@ wss.on('connection', (twilioWs, req) => {
     }
   )
 
-  openaiWs.on('open', () => {
-    console.log(`[call:${callId}] ✅ OpenAI Realtime connected — sending session.update`)
+  // Send session.update only once BOTH the OpenAI socket is open AND Twilio's
+  // `start` event has delivered the lead params (so instructions have the name).
+  function configureSession() {
+    if (!openaiReady || !started || sessionConfigured) return
+    sessionConfigured = true
+    console.log(`[call:${callId}] Configuring session — lead: ${leadName}, event: ${eventType}`)
 
     openaiWs.send(JSON.stringify({
       type: 'session.update',
@@ -87,6 +97,12 @@ wss.on('connection', (twilioWs, req) => {
       },
     }))
     console.log(`[call:${callId}] session.update sent`)
+  }
+
+  openaiWs.on('open', () => {
+    console.log(`[call:${callId}] ✅ OpenAI Realtime connected`)
+    openaiReady = true
+    configureSession()
   })
 
   // ── OpenAI → Twilio ─────────────────────────────────────────────────────────
@@ -186,7 +202,19 @@ wss.on('connection', (twilioWs, req) => {
 
     if (event.event === 'start') {
       streamSid = event.start.streamSid
-      console.log(`[call:${callId}] ✅ Twilio stream started — SID: ${streamSid}, buffered chunks to flush: ${audioBuffer.length}`)
+
+      // Lead params delivered via <Parameter> elements land here.
+      const cp = event.start.customParameters || {}
+      if (cp.callId) callId = cp.callId
+      if (cp.name) leadName = cp.name
+      if (cp.eventType) eventType = formatEventType(cp.eventType)
+      if (cp.propertyName) propertyName = cp.propertyName
+      if (cp.eventDate) eventDate = cp.eventDate
+      started = true
+
+      console.log(`[call:${callId}] ✅ Twilio stream started — SID: ${streamSid}, lead: ${leadName}, buffered chunks: ${audioBuffer.length}`)
+      configureSession()
+
       if (audioBuffer.length > 0) {
         audioBuffer.forEach(delta => {
           twilioWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload: delta } }))
