@@ -18,6 +18,8 @@ import {
   Phone,
 } from 'lucide-react'
 
+import { ProjectSwitcher } from '@/components/project-switcher'
+
 export function Sidebar() {
   const pathname = usePathname()
   const { data: session } = useSession()
@@ -50,7 +52,7 @@ export function Sidebar() {
   return (
     <div className="w-64 h-screen bg-sidebar border-r border-sidebar-border flex flex-col fixed left-0 top-0 z-50">
       {/* Header */}
-      <div className="p-6 border-b border-sidebar-border">
+      <div className="p-6 border-b border-sidebar-border space-y-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center">
             <span className="text-lg font-bold text-sidebar-primary-foreground">N</span>
@@ -60,6 +62,8 @@ export function Sidebar() {
             <p className="text-xs text-muted-foreground">Revenue OS</p>
           </div>
         </div>
+
+        <ProjectSwitcher />
       </div>
 
       {/* Main Navigation */}

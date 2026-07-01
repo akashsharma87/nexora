@@ -12,6 +12,18 @@ export const propertyUpdateSchema = z.object({
   logoUrl: z.preprocess(emptyToUndefined, z.string().url().optional()),
 })
 
+export const projectCreateSchema = z.object({
+  name: z.string().min(2),
+  address: z.preprocess(emptyToUndefined, z.string().optional()),
+  city: z.preprocess(emptyToUndefined, z.string().optional()),
+  phone: z.preprocess(emptyToUndefined, z.string().optional()),
+  email: z.preprocess(emptyToUndefined, z.string().email().optional()),
+})
+
+export const projectSwitchSchema = z.object({
+  propertyId: z.string().min(1),
+})
+
 export const userCreateSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),

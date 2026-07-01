@@ -5,6 +5,8 @@ import { SessionProvider } from 'next-auth/react'
 import { ReactNode, useState } from 'react'
 import { Toaster } from 'react-hot-toast'
 
+import { ActiveProjectProvider } from '@/components/active-project-provider'
+
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -21,8 +23,10 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <SessionProvider>
       <QueryClientProvider client={queryClient}>
-        {children}
-        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+        <ActiveProjectProvider>
+          {children}
+          <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+        </ActiveProjectProvider>
       </QueryClientProvider>
     </SessionProvider>
   )

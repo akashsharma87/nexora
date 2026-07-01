@@ -2,10 +2,13 @@
 
 import { FormEvent } from 'react'
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
+import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
-import { Building2, Loader2, Plus, Users } from 'lucide-react'
+import { Building2, Check, Loader2, Plus, Users } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
+import { useActiveProject, useCreateProject } from '@/components/active-project-provider'
+import { canManage } from '@/lib/roles'
 
 type Property = {
   id: string
@@ -34,6 +37,11 @@ async function apiGet<T>(url: string): Promise<T> {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
+  const { data: session } = useSession()
+  const { projects, activeId, isSwitching, switchTo } = useActiveProject()
+  const { createProject, isCreating } = useCreateProject()
+  const canAddProject = canManage(session?.user?.role)
+
   const [propertyQuery, usersQuery] = useQueries({
     queries: [
       { queryKey: ['settings-property'], queryFn: () => apiGet<{ property: Property }>('/api/settings/property') },
@@ -117,15 +125,49 @@ export default function SettingsPage() {
     event.currentTarget.reset()
   }
 
+  async function handleSwitchProject(propertyId: string) {
+    if (propertyId === activeId) return
+    try {
+      await switchTo(propertyId)
+      toast.success('Switched project')
+    } catch {
+      toast.error('Could not switch project')
+    }
+  }
+
+  async function submitProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    const name = String(data.get('name') ?? '').trim()
+    if (!name) return
+
+    try {
+      const { project } = await createProject({
+        name,
+        city: String(data.get('city') ?? ''),
+        phone: String(data.get('phone') ?? ''),
+        email: String(data.get('email') ?? ''),
+      })
+      toast.success(`"${project.name}" created`)
+      form.reset()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create project')
+    }
+  }
+
   const property = propertyQuery.data?.property
   const users = usersQuery.data?.users ?? []
+  const activeProjectName = projects.find((project) => project.id === activeId)?.name
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div>
           <h1 className="text-4xl font-bold text-foreground">Settings</h1>
-          <p className="text-muted-foreground mt-1">Manage property profile and team access for the current organization.</p>
+          <p className="text-muted-foreground mt-1">
+            Manage projects, property profile, and team access for the current organization.
+          </p>
         </div>
 
         {(propertyQuery.isLoading || usersQuery.isLoading) && (
@@ -135,6 +177,62 @@ export default function SettingsPage() {
           </div>
         )}
 
+        <section className="rounded-lg border border-border bg-card p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-foreground">Projects</h2>
+              <p className="text-sm text-muted-foreground">
+                Every property you have access to. Switch the active one, or add another.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 mb-6">
+            {projects.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                onClick={() => handleSwitchProject(project.id)}
+                disabled={isSwitching}
+                className={`flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors disabled:opacity-60 ${
+                  project.id === activeId
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:bg-muted'
+                }`}
+              >
+                <div>
+                  <p className="font-medium text-foreground">{project.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {project.organizationName}
+                    {project.city ? ` · ${project.city}` : ''}
+                  </p>
+                </div>
+                {project.id === activeId && <Check className="h-4 w-4 flex-shrink-0 text-primary" />}
+              </button>
+            ))}
+          </div>
+
+          {canAddProject && (
+            <form onSubmit={submitProject} className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-border pt-5">
+              <input name="name" required minLength={2} placeholder="New property name" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <input name="city" placeholder="City" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <input name="phone" placeholder="Phone" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <input name="email" type="email" placeholder="Email" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <button
+                type="submit"
+                disabled={isCreating}
+                className="md:col-span-2 inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+              >
+                {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add Project
+              </button>
+            </form>
+          )}
+        </section>
+
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <section className="rounded-lg border border-border bg-card p-6">
             <div className="mb-5 flex items-center gap-3">
@@ -143,7 +241,10 @@ export default function SettingsPage() {
               </div>
               <div>
                 <h2 className="font-semibold text-foreground">Property</h2>
-                <p className="text-sm text-muted-foreground">{property?.organization?.name ?? 'Organization'}</p>
+                <p className="text-sm text-muted-foreground">
+                  Editing <span className="font-medium text-foreground">{activeProjectName ?? property?.name}</span>
+                  {property?.organization?.name ? ` · ${property.organization.name}` : ''}
+                </p>
               </div>
             </div>
 
