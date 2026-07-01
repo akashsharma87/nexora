@@ -58,6 +58,10 @@ wss.on('connection', (twilioWs, req) => {
   let openaiReady = false
   let started = false
   let sessionConfigured = false
+  let responseActive = false // true while OpenAI is generating a response (for barge-in)
+  let pendingHangup = false  // report_outcome fired → hang up once goodbye finishes playing
+  let hangupMarkSent = false
+  const HANGUP_MARK = 'nexora-hangup'
 
   // ── Open OpenAI Realtime WebSocket ──────────────────────────────────────────
   const openaiWs = new WebSocket(
@@ -76,27 +80,85 @@ wss.on('connection', (twilioWs, req) => {
     sessionConfigured = true
     console.log(`[call:${callId}] Configuring session — lead: ${leadName}, event: ${eventType}`)
 
+    // GA Realtime session shape (gpt-realtime). The old flat shape
+    // (input_audio_format/output_audio_format/voice/modalities/turn_detection at
+    // the top level) is rejected with "Missing required parameter: 'session.type'".
+    // g711 μ-law maps to the GA format type "audio/pcmu".
     openaiWs.send(JSON.stringify({
       type: 'session.update',
       session: {
-        input_audio_format: 'g711_ulaw',
-        output_audio_format: 'g711_ulaw',
-        voice: 'shimmer',
+        type: 'realtime',
+        output_modalities: ['audio'],
         instructions: buildInstructions({ leadName, eventType, propertyName, eventDate }),
         tools: [outcomeReportTool],
         tool_choice: 'auto',
-        input_audio_transcription: { model: 'whisper-1' },
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 700,
-          create_response: true,
+        audio: {
+          input: {
+            format: { type: 'audio/pcmu' },
+            transcription: { model: 'whisper-1' },
+            // Handset audio is close-talking → near_field cleans background noise
+            // so VAD triggers on real speech, not line hiss (steadier barge-in).
+            noise_reduction: { type: 'near_field' },
+            turn_detection: {
+              type: 'server_vad',
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 500,
+              create_response: true,
+              interrupt_response: true, // stop Priya's response the moment the lead speaks
+            },
+          },
+          output: {
+            format: { type: 'audio/pcmu' },
+            voice: 'marin', // most natural female voice for gpt-realtime (GA)
+          },
         },
-        modalities: ['audio', 'text'],
       },
     }))
     console.log(`[call:${callId}] session.update sent`)
+  }
+
+  // Parse + report the report_outcome tool call, at most once per call. This is
+  // Priya's final action — it also arms the hang-up so the call ends after her
+  // goodbye finishes playing (instead of sitting silent waiting for the lead).
+  function handleOutcomeCall(rawArgs) {
+    if (outcomeReported) return
+    try {
+      const outcome = JSON.parse(rawArgs)
+      console.log(`[call:${callId}] Outcome reported:`, outcome.outcome, outcome.qualifiedScore)
+      outcomeReported = true
+      reportOutcomeToNexora(callId, outcome, transcript)
+    } catch (e) {
+      console.error(`[call:${callId}] Failed to parse outcome:`, e)
+    }
+    pendingHangup = true
+    maybeSendHangupMark()
+  }
+
+  // End the media stream. With <Connect><Stream>, closing the socket ends the
+  // stream and — since no TwiML follows <Connect> — Twilio hangs up the call.
+  function endCall() {
+    if (twilioWs.readyState === WebSocket.OPEN) twilioWs.close()
+    if (openaiWs.readyState === WebSocket.OPEN) openaiWs.close()
+  }
+
+  // Once the goodbye response is fully generated, drop a Twilio `mark` after the
+  // last audio chunk. Twilio echoes the mark back only after it has PLAYED up to
+  // that point — so we hang up when the caller has actually heard the goodbye,
+  // not when we merely finished sending it (audio is buffered ahead on Twilio).
+  function maybeSendHangupMark() {
+    if (!pendingHangup || hangupMarkSent || !streamSid) return
+    if (responseActive) return // goodbye still generating — wait for response.done
+    hangupMarkSent = true
+    twilioWs.send(JSON.stringify({ event: 'mark', streamSid, mark: { name: HANGUP_MARK } }))
+    console.log(`[call:${callId}] 👋 Goodbye done — mark placed, hanging up once played`)
+    // Safety net: if Twilio never echoes the mark, force-close anyway.
+    setTimeout(() => {
+      if (twilioWs.readyState === WebSocket.OPEN) {
+        console.log(`[call:${callId}] ⏱️  Hangup mark not echoed — force closing`)
+        endCall()
+      }
+    }, 8000)
   }
 
   openaiWs.on('open', () => {
@@ -113,7 +175,7 @@ wss.on('connection', (twilioWs, req) => {
     try { event = JSON.parse(raw) } catch { return }
 
     // Log every event type (skip noisy media chunks after first 5 audio deltas)
-    if (event.type !== 'response.audio.delta' || audioDeltaCount <= 5) {
+    if (event.type !== 'response.output_audio.delta' || audioDeltaCount <= 5) {
       console.log(`[call:${callId}] OpenAI event: ${event.type}${event.error ? ' — ' + JSON.stringify(event.error) : ''}`)
     }
 
@@ -123,8 +185,31 @@ wss.on('connection', (twilioWs, req) => {
       openaiWs.send(JSON.stringify({ type: 'response.create' }))
     }
 
+    // Track whether Priya is currently speaking (for barge-in).
+    if (event.type === 'response.created') responseActive = true
+    if (event.type === 'response.done') {
+      responseActive = false
+      maybeSendHangupMark() // if goodbye just finished, arm the hang-up
+    }
+
+    // BARGE-IN: the lead started talking over Priya. Server VAD fires this the
+    // instant it hears speech. We must (1) flush the audio Twilio has already
+    // buffered — OpenAI streams faster than real-time, so seconds of Priya's
+    // speech are queued on Twilio's side and would otherwise keep playing — and
+    // (2) cancel the in-progress OpenAI response so she stops generating.
+    if (event.type === 'input_audio_buffer.speech_started') {
+      audioBuffer = [] // drop anything not yet forwarded to Twilio
+      if (streamSid) {
+        twilioWs.send(JSON.stringify({ event: 'clear', streamSid }))
+      }
+      if (responseActive) {
+        openaiWs.send(JSON.stringify({ type: 'response.cancel' }))
+        console.log(`[call:${callId}] ✋ Barge-in — cleared Twilio audio + cancelled response`)
+      }
+    }
+
     // Stream AI audio back to the lead's phone — buffer if streamSid not yet set
-    if (event.type === 'response.audio.delta' && event.delta) {
+    if (event.type === 'response.output_audio.delta' && event.delta) {
       audioDeltaCount++
       if (!streamSid) {
         audioBuffer.push(event.delta)
@@ -139,12 +224,12 @@ wss.on('connection', (twilioWs, req) => {
       }
     }
 
-    if (event.type === 'response.audio.done') {
+    if (event.type === 'response.output_audio.done') {
       console.log(`[call:${callId}] 🏁 OpenAI audio done — total deltas: ${audioDeltaCount}`)
     }
 
     // Collect transcript
-    if (event.type === 'response.audio_transcript.done' && event.transcript) {
+    if (event.type === 'response.output_audio_transcript.done' && event.transcript) {
       console.log(`[call:${callId}] 🗣️  Priya said: "${event.transcript}"`)
       transcript.push({ role: 'assistant', content: event.transcript, ts: Date.now() })
     }
@@ -156,19 +241,22 @@ wss.on('connection', (twilioWs, req) => {
       transcript.push({ role: 'user', content: event.transcript, ts: Date.now() })
     }
 
-    // Outcome function call from the AI
+    // Outcome function call from the AI. GA delivers this via
+    // response.function_call_arguments.done (carries name + arguments); some turns
+    // only surface it on response.output_item.done as a function_call item.
+    // handleOutcomeCall() is guarded so we report at most once.
     if (
       event.type === 'response.function_call_arguments.done' &&
       event.name === 'report_outcome'
     ) {
-      try {
-        const outcome = JSON.parse(event.arguments)
-        console.log(`[call:${callId}] Outcome reported:`, outcome.outcome, outcome.qualifiedScore)
-        outcomeReported = true
-        reportOutcomeToNexora(callId, outcome, transcript)
-      } catch (e) {
-        console.error(`[call:${callId}] Failed to parse outcome:`, e)
-      }
+      handleOutcomeCall(event.arguments)
+    }
+    if (
+      event.type === 'response.output_item.done' &&
+      event.item?.type === 'function_call' &&
+      event.item?.name === 'report_outcome'
+    ) {
+      handleOutcomeCall(event.item.arguments)
     }
 
     if (event.type === 'error') {
@@ -233,6 +321,12 @@ wss.on('connection', (twilioWs, req) => {
       }))
     }
 
+    // Twilio echoes our hang-up mark once the goodbye audio has finished playing.
+    if (event.event === 'mark' && event.mark?.name === HANGUP_MARK) {
+      console.log(`[call:${callId}] ✅ Goodbye played — ending call`)
+      endCall()
+    }
+
     if (event.event === 'stop') {
       console.log(`[call:${callId}] Stream stopped`)
       if (openaiWs.readyState === WebSocket.OPEN) openaiWs.close()
@@ -277,29 +371,56 @@ function formatEventType(raw) {
 
 function buildInstructions({ leadName, eventType, propertyName, eventDate }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
-  return `You are Priya, a warm and professional banquet coordinator calling from ${propertyName}.
+  return `You are Priya, a warm banquet coordinator calling ${leadName} from ${propertyName}. ${leadName} submitted an enquiry about a ${eventType}${dateClause}.
 
-You are calling ${leadName} who submitted an enquiry about a ${eventType}${dateClause}.
+# ROLE & OBJECTIVE
+Have a genuine, friendly phone chat to understand their event and gauge interest — then hand off warmly. You are a real person, NOT a bot, NOT a survey. You've done this hundreds of times; it's easy and natural.
 
-LANGUAGE: Speak naturally in Hinglish (Hindi + English mix, as Indians speak on phone). Switch fully to English if the lead responds only in English.
+# PERSONALITY & TONE
+- Warm, friendly, lightly chatty; genuinely curious about their event. Smile in your voice.
+- Talk like a real Indian person on the phone: natural Hinglish (Hindi + English mixed). Switch fully to English only if they clearly prefer it.
+- Keep EVERY turn short — 1 to 2 sentences, one idea at a time. Then STOP and listen. Never monologue. Never stack two questions.
+- Match their energy: excited when they share happy news, calm and reassuring if they sound unsure.
 
-OPENING LINE: "Hello, ${leadName} ji? Main Priya bol rahi hoon ${propertyName} se. Aapne hamare banquet ke liye enquiry ki thi — kya abhi 2-3 minute baat kar sakte hain?"
+# VARIETY (VERY IMPORTANT — do not sound robotic)
+- NEVER start two replies with the same word, and never reuse the same acknowledgement twice in a row. You have been sounding repetitive by always saying "haan ji" — actively avoid that.
+- Rotate your acknowledgements naturally across the call. Pull from a wide range, e.g.: "achha", "okay", "theek hai", "hmm", "samajh gayi", "bilkul", "arre wah", "sahi hai", "great", "perfect", "oh nice", "acha acha", "ji bilkul", "wonderful". Pick whatever genuinely fits that moment — don't cycle a fixed list mechanically.
+- Vary sentence structure and phrasing too. Never read anything word-for-word. Rephrase questions freshly each time.
+- Occasional tiny natural disfluencies are good ("umm", "matlab", a short pause) — but sparingly.
 
-QUALIFICATION FLOW (natural conversation, not like filling a form):
-1. Confirm they submitted the enquiry and are available to talk
-2. Ask event date: "Kab ka plan kar rahe hain?"
-3. Ask guest count: "Approximately kitne guests expect kar rahe hain?"
-4. Ask budget: "Budget-wise roughly kya soch rahe hain?"
-5. Check decision maker: "Aap hi final decision lenge ya family ke saath discuss hoga?"
-6. If interested — wrap up warmly: "Bahut accha! Main aapko abhi WhatsApp pe venue photos, packages aur pricing send kar rahi hoon. Aur hamare senior team member aapko ek ghante ke andar call karenge detailed discussion ke liye."
+# PACING & DELIVERY
+- Relaxed, unhurried, warm pace. Small natural pauses are human — don't rush your words together.
+- Speak conversationally, not like reading. Let your tone rise and fall naturally.
 
-KEY RULES:
-- Be warm, natural — never robotic or pushy
-- Max call duration: 3 minutes — qualify quickly then end
-- If they say busy: "Koi baat nahi — kab call karoon? Subah ya shaam?"
-- If not interested: "Bilkul samajh aata hai. Thank you for your time. Have a great day!"
-- If wrong number: Apologise and end immediately
-- You MUST call report_outcome before saying goodbye on EVERY call.`
+# HANDLING INTERRUPTIONS
+- If they talk while you're speaking, STOP instantly and listen — never talk over them or finish your old sentence.
+- When you resume, do NOT restart your previous sentence and do NOT default to "haan ji". React to what they actually just said, with a fresh, fitting acknowledgement.
+
+# UNCLEAR AUDIO
+- Only respond to what you clearly heard. If it's garbled or you're unsure, ask them warmly to repeat — "Sorry ji, thodi awaaz cut ho gayi, ek baar phir bataiye?" Never guess at content you didn't catch.
+
+# OPENING
+Open warmly and naturally, in your own words — e.g. "Hello, ${leadName} ji? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein banquet ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?" (Don't read it verbatim — say it fresh.)
+
+# WHAT TO LEARN (through natural chat, NOT a checklist — react to each answer before the next)
+- The occasion, and roughly when they're planning it.
+- Roughly how many guests.
+- Budget range they have in mind (ask gently, casually).
+- Whether they decide, or discuss with family.
+Weave these in like a friendly, curious chat — never fire them one after another like a form.
+
+# ENDING THE CALL (important — always close cleanly, never trail off)
+Every call must reach a clear ending — never go quiet waiting for them once you've said what you need to. When you're ready to close:
+1. Say your closing message naturally. For an interested lead: you'll send venue photos, packages and pricing on WhatsApp right away, and a senior colleague will call within the hour for details.
+2. Then say a warm, complete goodbye — e.g. "Aapka bahut shukriya ji, aapka din shubh rahe. Namaste!" This is a definite sign-off, not a question. Do NOT ask anything after it or wait for them to reply.
+3. As your VERY LAST action, in the same turn right after the spoken goodbye, call the report_outcome function. Calling it ends the call — so only call it once you have truly finished speaking your goodbye.
+
+# BOUNDARIES
+- Keep the whole call under ~3 minutes — efficient but never rushed or pushy.
+- If busy: warmly offer a callback ("Koi baat nahi ji, main baad mein call kar loon? Subah theek rahega ya shaam?"), then give your goodbye and call report_outcome.
+- If not interested: be gracious ("Bilkul samajh sakti hoon ji. Time dene ke liye shukriya!"), then goodbye and call report_outcome.
+- If wrong number: apologise sincerely, brief goodbye, then call report_outcome.
+- Never say robotic things like "noted" or "recorded" — just react like a person.`
 }
 
 const outcomeReportTool = {
