@@ -435,15 +435,65 @@ build` succeeds, `/settings/integrations` prerenders, new routes registered.
 Google Ads routes are built next session (developer token + MCC login-customer-id + redirect URL
 already set).
 
+**Deployed (same day, continued):**
+- `npx prisma db push` run against production via the Railway Postgres public proxy
+  (`railway run` couldn't reach `postgres.railway.internal` from outside Railway's network — used
+  `DATABASE_PUBLIC_URL`'s host/port instead). **Note:** this put the production DB password in
+  plaintext in a local shell command — recommended rotating it in Railway once confirmed healthy.
+- GitHub → Railway auto-deploy did not pick up the `git push` (matches the flaky auto-deploy
+  history from Session 6). Deployed directly via `railway up --service nexora --detach` from repo
+  root instead — confirmed via `railway logs --build` that the new routes were actually in the
+  built route list before declaring it done (auto-deploy silently not firing would otherwise have
+  looked identical to a successful deploy).
+
+**Bug found and fixed same day — OAuth callback redirected to a dead page.** After completing the
+Facebook consent screen, users landed on `https://0.0.0.0:8080/settings/integrations?...` ("site
+can't be reached") even though the connection itself had succeeded server-side. Root cause:
+`app/api/integrations/meta/callback/route.ts` built the post-OAuth redirect with
+`new URL('/settings/integrations', request.url)` — behind Railway's proxy, `request.url` resolves
+to the container's bind address, not the public domain. Same class of bug already hit with Twilio
+callback URLs (Session 6). Fix: build the redirect from `process.env.APP_URL` instead, matching
+the convention `lib/ai-calling.ts` already uses. Deployed and confirmed live.
+
+**Also caught mid-session:** the domain configured in the Meta app / Google Cloud OAuth client and
+in Railway's `META_ADS_REDIRECT_URI`/`GOOGLE_ADS_REDIRECT_URL` was initially the abandoned
+`nexora-production-752d` project (see the earlier note in this session) — corrected in all three
+places before the first real connect attempt.
+
+**Verified working end-to-end:** connected the Meta master Business Manager, listed handled ad
+accounts, searched, and linked "Citadel Sarovar Portico Bangalore" to the `tamrind` test property.
+
+### Meta campaign sync — built same day
+
+The connect flow only stored *which* ad account to pull from; nothing populated the Campaigns
+page (it was still showing `prisma/seed.ts`'s 6 hardcoded campaigns). Built the actual sync:
+
+- `prisma/schema.prisma` — `Campaign` gained `externalId String?` +
+  `@@unique([propertyId, externalId])`, so repeat syncs upsert instead of duplicating. Nullable is
+  safe here — Postgres treats multiple `NULL`s in a unique index as distinct, so existing
+  manually-created/seeded campaigns (`externalId = null`) don't collide.
+- `lib/meta-ads.ts` — `listMetaCampaigns()` (campaign metadata + budget, paginated) and
+  `getMetaCampaignInsights()` (lifetime spend + lead-like `actions`, `date_preset=maximum`).
+  **Budget vs. spend unit mismatch documented in comments:** Meta's Campaign node reports
+  `daily_budget`/`lifetime_budget` in the account currency's minor unit (÷100 needed); the
+  Insights endpoint's `spend` field is already in major units (no ÷100) — an easy place to get a
+  10,000% error wrong if not handled per-field.
+- `app/api/integrations/meta/sync-campaigns/route.ts` (POST) — merges campaign metadata +
+  insights, maps Meta's `effective_status` onto our narrower `CampaignStatus` enum, and upserts
+  into `Campaign`. **Campaign `type` has no Meta equivalent** (our 6-type taxonomy is Nexora's own
+  event-type ontology) — best-effort keyword match on the campaign name, reusing
+  `normalizeEventType()` (newly exported from `lib/google-sheets.ts`, same heuristic already used
+  for Sheet-imported leads) rather than inventing a second classifier.
+- UI: "Sync Campaigns" button next to the selected account in `integrations-content.tsx`,
+  invalidates the `['campaigns']` query on success so the Campaigns page reflects it immediately.
+
 **Not done yet — next session:**
-- `npx prisma db push` against the production DB (new `AdPlatformConnection` table + `Property`
-  columns don't exist there until this runs — no Railway release command configured, must be run
-  manually via `railway run`).
-- Real end-to-end test of the Connect → pick account → save flow against the live Meta app.
 - Google Ads: identical OAuth pattern (`lib/google-ads.ts`, connect/callback/accounts routes,
-  `ListAccessibleCustomers` against the MCC) plus the campaign-metrics sync into the `Campaign`
-  model (spend/CTR/CPL/conversions per `prd.md` §11.2) once an account is selected on both
-  platforms.
+  `ListAccessibleCustomers` against the MCC) plus the same campaign-sync approach once an account
+  is selected.
+- Real end-to-end test of "Sync Campaigns" against a live Meta ad account with actual campaign
+  history (built and deployed, not yet click-tested).
+- Rotate the production Postgres password (exposed during the manual `prisma db push` above).
 
 ---
 
