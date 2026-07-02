@@ -8,32 +8,37 @@ datasource db {
 }
 
 model Organization {
-  id         String     @id @default(cuid())
-  name       String
-  slug       String     @unique
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  properties Property[]
-  users      User[]
+  id                    String                  @id @default(cuid())
+  name                  String
+  slug                  String                  @unique
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  properties            Property[]
+  users                 User[]
+  adPlatformConnections AdPlatformConnection[]
 }
 
 model Property {
-  id             String            @id @default(cuid())
-  organizationId String
-  name           String
-  address        String?
-  city           String?
-  phone          String?
-  email          String?
-  logoUrl        String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  organization   Organization      @relation(fields: [organizationId], references: [id])
-  users          UserProperty[]
-  leads          Lead[]
-  campaigns      Campaign[]
-  listings       PlatformListing[]
-  templates      MessageTemplate[]
+  id                   String            @id @default(cuid())
+  organizationId       String
+  name                 String
+  address              String?
+  city                 String?
+  phone                String?
+  email                String?
+  logoUrl              String?
+  metaAdAccountId      String?
+  metaAdAccountName    String?
+  googleAdsCustomerId  String?
+  googleAdsAccountName String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  organization         Organization      @relation(fields: [organizationId], references: [id])
+  users                UserProperty[]
+  leads                Lead[]
+  campaigns            Campaign[]
+  listings             PlatformListing[]
+  templates            MessageTemplate[]
 }
 
 model User {
@@ -484,6 +489,33 @@ enum IntegrationStatus {
   ACTIVE
   PAUSED
   ERROR
+}
+
+// ─── AD PLATFORM MASTER CONNECTIONS (agency-level OAuth) ──────────────────────
+// One row per organization per platform: the agency authenticates its master
+// Business Manager / MCC once, and every property picks its ad account from
+// the list that master token can see (fields above on Property).
+
+model AdPlatformConnection {
+  id                String            @id @default(cuid())
+  organizationId    String
+  platform          AdPlatform
+  accessToken       String            @db.Text
+  refreshToken      String?           @db.Text
+  tokenExpiresAt    DateTime?
+  externalId        String?
+  connectedByUserId String?
+  status            IntegrationStatus @default(ACTIVE)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, platform])
+}
+
+enum AdPlatform {
+  META
+  GOOGLE_ADS
 }
 
 // ─── AI VOICE CALLING ─────────────────────────────────────────────────────────

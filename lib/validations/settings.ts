@@ -10,6 +10,10 @@ export const propertyUpdateSchema = z.object({
   phone: z.preprocess(emptyToUndefined, z.string().optional()),
   email: z.preprocess(emptyToUndefined, z.string().email().optional()),
   logoUrl: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  metaAdAccountId: z.preprocess(emptyToUndefined, z.string().optional()),
+  metaAdAccountName: z.preprocess(emptyToUndefined, z.string().optional()),
+  googleAdsCustomerId: z.preprocess(emptyToUndefined, z.string().optional()),
+  googleAdsAccountName: z.preprocess(emptyToUndefined, z.string().optional()),
 })
 
 export const projectCreateSchema = z.object({

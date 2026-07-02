@@ -383,6 +383,70 @@ project was active when they were added in Settings. Future work if needed.
 
 ---
 
+## Session 10 — July 2, 2026
+
+### Meta Ads master-account OAuth — built, ready to test
+
+Agency-managed connect flow: an Internet Moguls admin authenticates the master Meta Business
+Manager once; every property then picks its ad account from the list that master token can see.
+Google Ads follows the identical pattern next session (Meta built first, end-to-end, to validate
+the flow before duplicating it).
+
+**Schema (`prisma/schema.prisma`):**
+- `AdPlatformConnection` — one row per organization per platform (`META` | `GOOGLE_ADS`), stores
+  the long-lived access token, `tokenExpiresAt`, and the connecting Facebook user id
+  (`@@unique([organizationId, platform])`).
+- `Property` gained `metaAdAccountId` / `metaAdAccountName` + `googleAdsCustomerId` /
+  `googleAdsAccountName` (the latter two unused until the Google Ads routes are built).
+
+**Backend:**
+- `lib/meta-ads.ts` — OAuth dialog URL builder, code → short-lived → long-lived (60-day) token
+  exchange, paginated `/me/adaccounts` listing, `/me` profile lookup.
+- `GET /api/integrations/meta/connect` — OWNER/MANAGER only; sets a short-lived httpOnly CSRF
+  state cookie (`nexora_meta_oauth_state`), redirects to Facebook's OAuth dialog.
+- `GET /api/integrations/meta/callback` — verifies state, exchanges the code, upserts the org's
+  `AdPlatformConnection`, redirects back to `/settings/integrations` with a toast query param.
+- `GET /api/integrations/meta/accounts` — returns connection status + a live ad account list from
+  the stored token (no local caching table — always fetched fresh).
+- `lib/validations/settings.ts` / `PATCH /api/settings/property` — now also accepts
+  `metaAdAccountId`/`metaAdAccountName` (and the Google Ads equivalents) to link a picked account
+  to the active property.
+
+**UI:** `/settings/integrations` split into a Suspense-wrapped `page.tsx` +
+`integrations-content.tsx` (required because the page now reads `useSearchParams()` for the
+post-OAuth-redirect toast — Next.js will not statically build a client page using it without a
+Suspense boundary, confirmed via `next build`). New "Ad Platform Connections" card above the
+existing Lead Integrations section: Connect → search box → account list → click to link.
+
+**Domain bug caught before deploy:** `META_ADS_REDIRECT_URI` and `GOOGLE_ADS_REDIRECT_URL` were
+initially set to `nexora-production-752d.up.railway.app` — the Railway project abandoned back in
+Session 6. Live service is `nexora-production-f468.up.railway.app` (confirmed via `railway status`
++ `railway variables`, cross-checked against `APP_URL`/`NEXTAUTH_URL` which were already correct).
+Fixed in Railway vars and in the Meta app / Google Cloud OAuth client redirect settings before
+testing — would otherwise have failed with a redirect_uri mismatch on first use.
+
+**Verified before deploy:** `npx prisma validate` + `npx prisma generate` clean; `npx tsc --noEmit`
+shows zero errors in any new/changed file (pre-existing unrelated errors in `lib/auth.ts`,
+`lib/seeds/property-defaults.ts`, `prisma/seed.ts`, `app/api/seed/route.ts` untouched); `npx next
+build` succeeds, `/settings/integrations` prerenders, new routes registered.
+
+**Env vars added (Railway `nexora` service + local `.env`):** `META_APP_ID`, `META_APP_SECRET`,
+`META_ADS_REDIRECT_URI`. `GOOGLE_ADS_CLIENT_ID`/`GOOGLE_ADS_CLIENT_SECRET` still needed once the
+Google Ads routes are built next session (developer token + MCC login-customer-id + redirect URL
+already set).
+
+**Not done yet — next session:**
+- `npx prisma db push` against the production DB (new `AdPlatformConnection` table + `Property`
+  columns don't exist there until this runs — no Railway release command configured, must be run
+  manually via `railway run`).
+- Real end-to-end test of the Connect → pick account → save flow against the live Meta app.
+- Google Ads: identical OAuth pattern (`lib/google-ads.ts`, connect/callback/accounts routes,
+  `ListAccessibleCustomers` against the MCC) plus the campaign-metrics sync into the `Campaign`
+  model (spend/CTR/CPL/conversions per `prd.md` §11.2) once an account is selected on both
+  platforms.
+
+---
+
 ## Production gaps (Railway) — not yet fixed
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` missing from Railway env
 - `OPENAI_API_KEY` = placeholder — AI proposal generation non-functional
