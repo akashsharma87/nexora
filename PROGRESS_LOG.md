@@ -487,13 +487,64 @@ page (it was still showing `prisma/seed.ts`'s 6 hardcoded campaigns). Built the 
 - UI: "Sync Campaigns" button next to the selected account in `integrations-content.tsx`,
   invalidates the `['campaigns']` query on success so the Campaigns page reflects it immediately.
 
+**Verified working end-to-end** on a real account with campaign history: connected Meta, linked
+"Citadel Sarovar Portico Bangalore," clicked Sync Campaigns.
+
+**Scope note surfaced by the user comparing our sync against Ads Manager directly:** the account
+has 41 campaigns total, and the sync pulls all of them — including non-lead-gen boosted posts
+(e.g. a cricket-night post boost, an Instagram profile-visit boost) that get a junk best-guess
+`type` and 0 leads. Also, our numbers are lifetime totals (`date_preset=maximum`); Ads Manager's
+default view is last-30-days, so side-by-side comparison will look wrong even when both are
+correct. Neither fixed yet — flagged, not actioned.
+
+### Lead-to-campaign attribution — wired (was silently half-built)
+
+`app/leads/new/page.tsx` already had a campaign `<select>`, and `app/leads/[id]/page.tsx` already
+rendered `lead.campaign` if present — but none of it worked, because:
+- `Lead.campaignId` was a bare column with **no Prisma `@relation`** to `Campaign` — `include:
+  { campaign: true }` would have silently been impossible.
+- `leadCreateSchema` (Zod) never listed `campaignId`, so `POST /api/leads` silently stripped it
+  from every submission regardless of what the form sent.
+- Nothing anywhere incremented `Campaign.bookingsCount` — it would have stayed 0 forever even with
+  the above two fixed.
+
+Fixed all three: added `Lead.campaign`/`Campaign.leads` relation (no new column — `campaignId`
+already existed, this is purely a Prisma-level mapping), added `campaignId` to
+`leadCreateSchema`, added `campaign: { select: {...} }` to the lead detail GET include, and
+increment `bookingsCount` on the `BOOKED` stage transition in
+`app/api/leads/[id]/stage/route.ts` (no idempotency guard against double-transitioning into
+`BOOKED` — matches the existing standard in that same function for its other side effects).
+
+### Google Ads — connect + sync built, mirroring Meta exactly
+
+`lib/google-ads.ts` + `app/api/integrations/google-ads/{connect,callback,accounts,sync-campaigns}`.
+Same shape as Meta's pipeline, with two real differences:
+- **Access tokens expire in ~1hr** (vs. Meta's 60-day token) — every accounts/sync call checks
+  `tokenExpiresAt` first and refreshes via the stored `refresh_token` if near expiry, persisting
+  the new token back to `AdPlatformConnection`. `access_type=offline` + `prompt=consent` on the
+  auth URL are both required to actually get a `refresh_token` back on first consent.
+- **No "lifetime" date literal in GAQL** (unlike Meta's `date_preset=maximum`) — used an explicit
+  `WHERE segments.date BETWEEN '2000-01-01' AND '<today>'` as the lifetime-total workaround.
+- Lead-count proxy is `metrics.all_conversions` (total conversions on the account), not filtered
+  to lead-specific conversion actions — same class of approximation as Meta's `actions` substring
+  match, documented in code.
+- `Campaign.externalId` is now **platform-prefixed** (`meta:...` / `google_ads:...`) on both syncs
+  — the unique constraint is only scoped by `propertyId`, so an unprefixed numeric-id collision
+  between the two platforms could otherwise have silently merged two unrelated campaigns.
+- `API_VERSION = 'v19'` in `lib/google-ads.ts` is a guess at current-for-2026 — Google Ads API
+  versions sunset roughly yearly; verify it's still supported before relying on this long-term.
+
+**Blocking — not yet click-tested:** `GOOGLE_ADS_CLIENT_ID` and `GOOGLE_ADS_CLIENT_SECRET` are
+**not set** in Railway (`GOOGLE_ADS_DEVELOPER_TOKEN`/`LOGIN_CUSTOMER_ID`/`REDIRECT_URL` all were).
+The connect route will throw `GOOGLE_ADS_CLIENT_ID is not set` the moment someone clicks Connect
+until these are added from the Google Cloud OAuth client's credentials page.
+
 **Not done yet — next session:**
-- Google Ads: identical OAuth pattern (`lib/google-ads.ts`, connect/callback/accounts routes,
-  `ListAccessibleCustomers` against the MCC) plus the same campaign-sync approach once an account
-  is selected.
-- Real end-to-end test of "Sync Campaigns" against a live Meta ad account with actual campaign
-  history (built and deployed, not yet click-tested).
-- Rotate the production Postgres password (exposed during the manual `prisma db push` above).
+- Add `GOOGLE_ADS_CLIENT_ID`/`GOOGLE_ADS_CLIENT_SECRET` to Railway, then real end-to-end test of
+  the Google Ads connect → list → select → sync flow (built and deployed, unverified).
+- Filter Meta/Google Ads sync to lead-gen-objective campaigns only, to stop non-lead boosted posts
+  from polluting the Campaigns page.
+- Rotate the production Postgres password (exposed during a manual `prisma db push` this session).
 
 ---
 
