@@ -7,8 +7,12 @@ import { exchangeMetaCodeForLongLivedToken, getMetaUserProfile } from '@/lib/met
 
 import { META_OAUTH_STATE_COOKIE } from '../connect/route'
 
-function redirectToSettings(request: NextRequest, params: Record<string, string>) {
-  const url = new URL('/settings/integrations', request.url)
+// request.url/request.nextUrl reflect the container's bind address (0.0.0.0:8080)
+// behind Railway's proxy, not the public domain — same class of bug already hit
+// with Twilio callback URLs (see PROGRESS_LOG.md Session 6). Always build
+// absolute redirect targets from APP_URL, never from the incoming request.
+function redirectToSettings(params: Record<string, string>) {
+  const url = new URL('/settings/integrations', process.env.APP_URL)
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
   return NextResponse.redirect(url)
 }
@@ -26,11 +30,11 @@ export async function GET(request: NextRequest) {
   cookieStore.delete(META_OAUTH_STATE_COOKIE)
 
   if (oauthError) {
-    return redirectToSettings(request, { meta_error: oauthError })
+    return redirectToSettings({ meta_error: oauthError })
   }
 
   if (!code || !state || state !== expectedState) {
-    return redirectToSettings(request, { meta_error: 'Invalid or expired authorization attempt — please try connecting again.' })
+    return redirectToSettings({ meta_error: 'Invalid or expired authorization attempt — please try connecting again.' })
   }
 
   try {
@@ -57,8 +61,8 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    return redirectToSettings(request, { meta_connected: profile.name })
+    return redirectToSettings({ meta_connected: profile.name })
   } catch (err) {
-    return redirectToSettings(request, { meta_error: err instanceof Error ? err.message : 'Failed to connect Meta' })
+    return redirectToSettings({ meta_error: err instanceof Error ? err.message : 'Failed to connect Meta' })
   }
 }
