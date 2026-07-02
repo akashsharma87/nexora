@@ -18,6 +18,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       assignedTo: {
         select: { id: true, name: true, email: true },
       },
+      campaign: {
+        select: { id: true, name: true, type: true },
+      },
       activities: {
         include: {
           user: {

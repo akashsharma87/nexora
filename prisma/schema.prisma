@@ -133,6 +133,7 @@ model Lead {
   updatedAt         DateTime             @updatedAt
   property          Property             @relation(fields: [propertyId], references: [id])
   assignedTo        User?                @relation("AssignedLeads", fields: [assignedToId], references: [id])
+  campaign          Campaign?            @relation(fields: [campaignId], references: [id])
   activities        LeadActivity[]
   proposals         Proposal[]
   tasks             Task[]
@@ -222,6 +223,7 @@ model Campaign {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   property       Property       @relation(fields: [propertyId], references: [id])
+  leads          Lead[]
 
   @@unique([propertyId, externalId])
 }

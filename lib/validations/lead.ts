@@ -17,6 +17,7 @@ export const leadCreateSchema = z.object({
   leadScore: z.coerce.number().int().min(0).max(100).optional(),
   notes: z.preprocess(emptyToUndefined, z.string().optional()),
   assignedToId: z.preprocess(emptyToUndefined, z.string().optional()),
+  campaignId: z.preprocess(emptyToUndefined, z.string().optional()),
 })
 
 export const leadUpdateSchema = leadCreateSchema.partial()

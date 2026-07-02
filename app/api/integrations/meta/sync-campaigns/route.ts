@@ -49,12 +49,15 @@ export async function POST() {
       const budgetAmount = c.dailyBudget ?? c.lifetimeBudget ?? 0
       const status = mapEffectiveStatus(c.effectiveStatus)
       const endDate = c.stopTime ? new Date(c.stopTime) : null
+      // Prefixed so a numeric-id collision with a Google Ads campaign can
+      // never merge two unrelated campaigns on the same property.
+      const externalId = `meta:${c.id}`
 
       await prisma.campaign.upsert({
-        where: { propertyId_externalId: { propertyId: session.user.propertyId, externalId: c.id } },
+        where: { propertyId_externalId: { propertyId: session.user.propertyId, externalId } },
         create: {
           propertyId: session.user.propertyId,
-          externalId: c.id,
+          externalId,
           name: c.name,
           // Meta campaign names don't carry our 6-type taxonomy — best-effort
           // keyword match on the name, same heuristic used for Sheet imports.

@@ -208,7 +208,12 @@ export function IntegrationsPageContent() {
     queryFn: async () => {
       const r = await fetch('/api/settings/property')
       return r.json() as Promise<{
-        property: { metaAdAccountId: string | null; metaAdAccountName: string | null }
+        property: {
+          metaAdAccountId: string | null
+          metaAdAccountName: string | null
+          googleAdsCustomerId: string | null
+          googleAdsAccountName: string | null
+        }
       }>
     },
   })
@@ -231,11 +236,15 @@ export function IntegrationsPageContent() {
   })
 
   useEffect(() => {
-    const connected = searchParams.get('meta_connected')
+    const metaConnected = searchParams.get('meta_connected')
     const metaError = searchParams.get('meta_error')
-    if (connected) toast.success(`Meta connected as ${connected}`)
+    const googleAdsConnected = searchParams.get('google_ads_connected')
+    const googleAdsError = searchParams.get('google_ads_error')
+    if (metaConnected) toast.success(`Meta connected as ${metaConnected}`)
     if (metaError) toast.error(metaError)
-    if (connected || metaError) router.replace('/settings/integrations')
+    if (googleAdsConnected) toast.success(`Google Ads connected as ${googleAdsConnected}`)
+    if (googleAdsError) toast.error(googleAdsError)
+    if (metaConnected || metaError || googleAdsConnected || googleAdsError) router.replace('/settings/integrations')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -348,6 +357,18 @@ export function IntegrationsPageContent() {
               selectedName={propertyData?.property?.metaAdAccountName}
               onSelect={(a) =>
                 selectAdAccountMutation.mutate({ metaAdAccountId: a.id, metaAdAccountName: a.name })
+              }
+            />
+            <AdPlatformCard
+              label="Google Ads"
+              connectHref="/api/integrations/google-ads/connect"
+              accountsQueryKey="google-ads-accounts"
+              accountsUrl="/api/integrations/google-ads/accounts"
+              syncUrl="/api/integrations/google-ads/sync-campaigns"
+              selectedId={propertyData?.property?.googleAdsCustomerId}
+              selectedName={propertyData?.property?.googleAdsAccountName}
+              onSelect={(a) =>
+                selectAdAccountMutation.mutate({ googleAdsCustomerId: a.id, googleAdsAccountName: a.name })
               }
             />
           </div>

@@ -55,6 +55,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   void (async () => {
     try {
       if (parsed.data.stage === 'BOOKED') {
+        if (updatedLead.campaignId) {
+          await prisma.campaign.update({
+            where: { id: updatedLead.campaignId },
+            data: { bookingsCount: { increment: 1 } },
+          })
+        }
         const property = await prisma.property.findUnique({ where: { id: updatedLead.propertyId } })
         await schedulePostEventSequence({
           leadId: updatedLead.id,
