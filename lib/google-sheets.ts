@@ -106,7 +106,7 @@ export function mapRowToLead(
   }
 }
 
-function normalizeEventType(raw: string): string {
+export function normalizeEventType(raw: string): string {
   if (!raw) return 'SOCIAL_EVENTS'
   const l = raw.toLowerCase()
   if (l.includes('wedding') || l.includes('roka') || l.includes('social')) return 'SOCIAL_EVENTS'

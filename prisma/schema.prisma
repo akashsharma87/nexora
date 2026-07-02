@@ -204,6 +204,7 @@ enum ActivityType {
 model Campaign {
   id             String         @id @default(cuid())
   propertyId     String
+  externalId     String?
   name           String
   type           CampaignType
   platforms      CampaignPlatform[]
@@ -221,6 +222,8 @@ model Campaign {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   property       Property       @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, externalId])
 }
 
 enum CampaignType {

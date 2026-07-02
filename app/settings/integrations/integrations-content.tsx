@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Check, ChevronDown, ChevronRight, Loader2, Plug, Plus, RefreshCw, Search, Sheet, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Loader2, Plug, Plus, RefreshCw, Search, Sheet, Trash2, X, Zap } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { sourceLabels, formatDate } from '@/lib/format'
@@ -22,6 +22,7 @@ function AdPlatformCard({
   connectHref,
   accountsQueryKey,
   accountsUrl,
+  syncUrl,
   selectedId,
   selectedName,
   onSelect,
@@ -30,11 +31,13 @@ function AdPlatformCard({
   connectHref: string
   accountsQueryKey: string
   accountsUrl: string
+  syncUrl?: string
   selectedId: string | null | undefined
   selectedName: string | null | undefined
   onSelect: (account: AdAccount) => void
 }) {
   const [search, setSearch] = useState('')
+  const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery({
     queryKey: [accountsQueryKey],
@@ -42,6 +45,20 @@ function AdPlatformCard({
       const r = await fetch(accountsUrl)
       return r.json() as Promise<{ connected: boolean; accounts: AdAccount[]; error?: string }>
     },
+  })
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(syncUrl!, { method: 'POST' })
+      const result = await r.json()
+      if (!r.ok) throw new Error(result.error || 'Sync failed')
+      return result as { synced: number }
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      toast.success(`Synced ${result.synced} campaign${result.synced === 1 ? '' : 's'} from ${label}`)
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Sync failed'),
   })
 
   const connected = data?.connected ?? false
@@ -73,9 +90,25 @@ function AdPlatformCard({
       {connected && (
         <>
           {selectedId && (
-            <p className="text-xs text-zinc-400 mb-2">
-              Selected account: <span className="text-white font-medium">{selectedName}</span>
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-zinc-400">
+                Selected account: <span className="text-white font-medium">{selectedName}</span>
+              </p>
+              {syncUrl && (
+                <button
+                  onClick={() => syncMutation.mutate()}
+                  disabled={syncMutation.isPending}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50 shrink-0 ml-2"
+                >
+                  {syncMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Zap className="h-3.5 w-3.5" />
+                  )}
+                  Sync Campaigns
+                </button>
+              )}
+            </div>
           )}
           <div className="relative mb-2">
             <Search className="h-3.5 w-3.5 text-zinc-500 absolute left-2.5 top-2.5" />
@@ -310,6 +343,7 @@ export function IntegrationsPageContent() {
               connectHref="/api/integrations/meta/connect"
               accountsQueryKey="meta-ad-accounts"
               accountsUrl="/api/integrations/meta/accounts"
+              syncUrl="/api/integrations/meta/sync-campaigns"
               selectedId={propertyData?.property?.metaAdAccountId}
               selectedName={propertyData?.property?.metaAdAccountName}
               onSelect={(a) =>
