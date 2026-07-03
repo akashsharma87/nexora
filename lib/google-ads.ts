@@ -13,7 +13,7 @@ function requireEnv(name: string): string {
 
 export function getGoogleAdsAuthUrl(state: string): string {
   const params = new URLSearchParams({
-    client_id: requireEnv('GOOGLE_ADS_CLIENT_ID'),
+    client_id: requireEnv('GOOGLE_CLIENT_ID'),
     redirect_uri: requireEnv('GOOGLE_ADS_REDIRECT_URL'),
     response_type: 'code',
     scope: OAUTH_SCOPES,
@@ -53,8 +53,8 @@ export async function exchangeGoogleAdsCode(code: string): Promise<{
 }> {
   const data = await postForm<GoogleTokenResponse>('https://oauth2.googleapis.com/token', {
     code,
-    client_id: requireEnv('GOOGLE_ADS_CLIENT_ID'),
-    client_secret: requireEnv('GOOGLE_ADS_CLIENT_SECRET'),
+    client_id: requireEnv('GOOGLE_CLIENT_ID'),
+    client_secret: requireEnv('GOOGLE_CLIENT_SECRET'),
     redirect_uri: requireEnv('GOOGLE_ADS_REDIRECT_URL'),
     grant_type: 'authorization_code',
   })
@@ -76,8 +76,8 @@ export async function refreshGoogleAdsAccessToken(refreshToken: string): Promise
 }> {
   const data = await postForm<GoogleTokenResponse>('https://oauth2.googleapis.com/token', {
     refresh_token: refreshToken,
-    client_id: requireEnv('GOOGLE_ADS_CLIENT_ID'),
-    client_secret: requireEnv('GOOGLE_ADS_CLIENT_SECRET'),
+    client_id: requireEnv('GOOGLE_CLIENT_ID'),
+    client_secret: requireEnv('GOOGLE_CLIENT_SECRET'),
     grant_type: 'refresh_token',
   })
 
