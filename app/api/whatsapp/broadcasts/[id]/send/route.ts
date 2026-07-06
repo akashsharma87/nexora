@@ -22,6 +22,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Broadcast already sent' }, { status: 400 })
   }
 
+  const property = await prisma.property.findUnique({ where: { id: session.user.propertyId } })
+
   // Get target leads
   const leads = await prisma.lead.findMany({
     where: { propertyId: session.user.propertyId, stage: { notIn: ['LOST'] } },
@@ -36,23 +38,29 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   let delivered = 0
   let failed = 0
 
-  for (const lead of leads) {
-    // Personalise the message with the lead's name
-    const personalised = broadcast.message.replace(/\{\{name\}\}/g, lead.name)
+  // nexora_broadcast_general is approved with 3 vars: {{1}}=name, {{2}}=hotel_name,
+  // {{3}}=short offer phrase. broadcast.message holds that phrase (not a full message —
+  // WhatsApp templates can't carry free-form marketing copy as a variable), capped to
+  // 40 chars to match what the composer enforces.
+  const offerPhrase = broadcast.message.slice(0, 40)
+  const sessionFallbackText = (leadName: string) =>
+    `Hi ${leadName}, exciting news from ${property?.name ?? 'our venue'}! We're offering ${offerPhrase} on bookings this month. Limited dates available — reply INTERESTED to know more.`
 
+  for (const lead of leads) {
     // Try template first, fall back to session message
     let result = await sendTemplateMessage(
       lead.phone,
       WATI_TEMPLATES.BROADCAST,
       [
-        { name: 'name', value: lead.name },
-        { name: 'message', value: personalised.slice(0, 200) },
+        { name: '1', value: lead.name },
+        { name: '2', value: property?.name ?? 'our venue' },
+        { name: '3', value: offerPhrase },
       ],
       `bc_${id.slice(0, 8)}_${lead.id.slice(0, 6)}`
     )
 
     if (!result.success) {
-      result = await sendSessionMessage(lead.phone, personalised)
+      result = await sendSessionMessage(lead.phone, sessionFallbackText(lead.name))
     }
 
     if (result.success) delivered++

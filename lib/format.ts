@@ -42,6 +42,15 @@ export const platformLabels: Record<string, string> = {
   JUSTDIAL: 'JustDial',
 }
 
+// Takes hours-since-some-event and renders "Xh" under a day, "Xd" or "Xd Yh" once
+// it crosses 24h — never shows raw triple-digit hour counts like "122h".
+export function formatHoursAgo(hours: number): string {
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  const remainingHours = hours % 24
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`
+}
+
 export function formatCurrency(value: number, unit: 'rupees' | 'lakhs' = 'rupees') {
   const rupees = unit === 'lakhs' ? value * 100000 : value
 

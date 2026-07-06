@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
 import { getAllRows, mapRowToLead, generateRowHash } from '@/lib/google-sheets'
-import { scheduleLeadNurtureSequence } from '@/lib/automation'
+import { scheduleLeadNurtureSequence, scheduleAiCall } from '@/lib/automation'
 import { eventTypeLabels } from '@/lib/format'
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -107,7 +107,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
           },
         })
 
-        // Schedule nurture sequence
+        // Schedule nurture sequence + AI qualification call (5 min after creation)
         await scheduleLeadNurtureSequence({
           leadId: lead.id,
           phone: lead.phone,
@@ -117,6 +117,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
           propertyName: property?.name || 'our venue',
           managerName: manager?.name || 'our team',
         })
+        await scheduleAiCall({ leadId: lead.id, propertyId: lead.propertyId })
 
         results.created++
       } catch (err) {

@@ -378,7 +378,18 @@ export default function WhatsAppPage() {
                     </div>
                   </div>
                 </div>
-                <textarea name="message" required rows={4} placeholder="Broadcast message text..." className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+                <div>
+                  <input
+                    name="message"
+                    required
+                    maxLength={40}
+                    placeholder="Short offer phrase, e.g. &quot;10% off d&eacute;cor&quot; (max 40 chars)"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sent inside the approved nexora_broadcast_general template — keep it a short phrase, not a full message. WhatsApp templates can&apos;t carry free-form marketing text as a variable.
+                  </p>
+                </div>
                 <button className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60" disabled={createBroadcast.isPending}>
                   <Send className="h-4 w-4" />
                   {createBroadcast.isPending ? 'Saving...' : 'Schedule Broadcast'}

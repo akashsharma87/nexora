@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/db'
-import { WATI_TEMPLATES, buildTemplateParams } from '@/lib/whatsapp'
+import { WATI_TEMPLATES } from '@/lib/whatsapp'
 
 export async function scheduleLeadNurtureSequence(params: {
   leadId: string
@@ -15,7 +15,13 @@ export async function scheduleLeadNurtureSequence(params: {
   const { leadId, phone, leadName, eventType, eventDate, propertyName, managerName } = params
   const now = new Date()
 
-  const templateParams = buildTemplateParams({ leadName, eventType, eventDate: eventDate || undefined, propertyName, managerName })
+  // All nurture templates below (except INITIAL_RESPONSE, handled separately) are
+  // approved/designed with the same 2 vars: {{1}}=name, {{2}}=hotel_name — keep the
+  // params array uniform so a template's actual variable count is never a guess.
+  const twoVarParams = [
+    { name: '1', value: leadName },
+    { name: '2', value: propertyName },
+  ]
 
   const messages = [
     {
@@ -24,7 +30,13 @@ export async function scheduleLeadNurtureSequence(params: {
       scheduledAt: new Date(now.getTime() + 10 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.INITIAL_RESPONSE,
-        parameters: templateParams,
+        // nexora_initial_response is approved with exactly 2 vars: {{1}}=name, {{2}}=hotel_name
+        // (matches app/api/leads/[id]/whatsapp/route.ts's manual send) — do not reuse the
+        // shared 3-5-param templateParams here, it doesn't match this template's variable count.
+        parameters: [
+          { name: '1', value: leadName },
+          { name: '2', value: propertyName },
+        ],
         message: `Hi ${leadName}! 🎉 Thank you for your enquiry about ${eventType} at ${propertyName}. We would love to host your special occasion! I am attaching our banquet brochure and pricing details. Our hall accommodates 50–500 guests with stunning décor options. Can we schedule a quick call or venue visit? Reply YES to confirm. — ${managerName}`,
       },
     },
@@ -33,8 +45,8 @@ export async function scheduleLeadNurtureSequence(params: {
       // Day 1: venue photos + packages (image-capable template)
       scheduledAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
       payload: {
-        templateName: (WATI_TEMPLATES as Record<string, string>)['NURTURE_DAY1'] ?? 'nexora_nurture_day1',
-        parameters: templateParams,
+        templateName: WATI_TEMPLATES.NURTURE_DAY1,
+        parameters: twoVarParams,
         message: `Hi ${leadName}! 🏛️ Here are some stunning photos of ${propertyName} and our latest ${eventType} packages. We have beautiful setups for 50–500 guests. Would you like to see more or schedule a venue tour? — ${managerName}`,
         imageUrl: null, // set a Cloudflare R2 / CDN URL per property when available
       },
@@ -44,7 +56,7 @@ export async function scheduleLeadNurtureSequence(params: {
       scheduledAt: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.NURTURE_DAY3,
-        parameters: templateParams,
+        parameters: twoVarParams,
         message: `Hi ${leadName}, following up on your ${eventType} enquiry 😊 We have exclusive packages available and recently hosted several beautiful events with rave reviews! Would you like to see our latest venue photos and an updated quote? — ${managerName}`,
       },
     },
@@ -53,7 +65,7 @@ export async function scheduleLeadNurtureSequence(params: {
       scheduledAt: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.NURTURE_DAY5,
-        parameters: templateParams,
+        parameters: twoVarParams,
         message: `Hi ${leadName}! Sharing what our recent guests say about ${propertyName} 🌟 "Absolutely stunning venue — the team went above and beyond!" Would you like to schedule a venue tour this week? — ${managerName}`,
       },
     },
@@ -62,7 +74,7 @@ export async function scheduleLeadNurtureSequence(params: {
       scheduledAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.NURTURE_DAY7,
-        parameters: buildTemplateParams({ leadName, eventType, eventDate: eventDate || undefined, propertyName, managerName }),
+        parameters: twoVarParams,
         message: `Hi ${leadName}, last follow-up from my side! 🙏 ${eventDate ? `Your ${eventDate} date has` : 'Your preferred date may have'} limited availability — a few other enquiries are pending for the same period. Can we do a quick 10-minute call today to finalise your package? Reply CALL and I will reach out immediately. — ${managerName}`,
       },
     },
@@ -141,12 +153,22 @@ export async function schedulePostEventSequence(params: {
   })
 }
 
+// Auto-scheduling on lead creation (manual add, CSV import, Google Sheets sync) is
+// off by default — a property must explicitly opt in via the toggle on /ai-calls
+// (Property.autoAiCallingEnabled). This does NOT gate the manual "Call with AI"
+// button or the bulk "Start AI Calling" trigger — those are explicit user actions.
 export async function scheduleAiCall(params: {
   leadId: string
   propertyId: string
   delayMs?: number
 }): Promise<void> {
   const { leadId, propertyId, delayMs = 5 * 60 * 1000 } = params
+
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { autoAiCallingEnabled: true },
+  })
+  if (!property?.autoAiCallingEnabled) return
 
   const existing = await prisma.aiCall.findFirst({
     where: { leadId, status: { in: ['PENDING', 'DIALING', 'IN_PROGRESS'] } },

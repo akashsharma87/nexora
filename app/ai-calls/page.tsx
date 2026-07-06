@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Phone, PhoneCall, PhoneMissed, PhoneOff, CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react'
+import { Phone, PhoneCall, PhoneMissed, PhoneOff, CheckCircle, XCircle, Clock, RefreshCw, PhoneForwarded, Zap, ZapOff } from 'lucide-react'
 import Link from 'next/link'
+import toast from 'react-hot-toast'
 
 type AiCall = {
   id: string
@@ -58,6 +59,10 @@ export default function AiCallsPage() {
   const [loading, setLoading] = useState(true)
   const [triggering, setTriggering] = useState<string | null>(null)
   const [selectedCall, setSelectedCall] = useState<AiCall | null>(null)
+  const [minDaysOld, setMinDaysOld] = useState(7)
+  const [bulkLoading, setBulkLoading] = useState(false)
+  const [autoCallingEnabled, setAutoCallingEnabled] = useState<boolean | null>(null)
+  const [autoToggleLoading, setAutoToggleLoading] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -72,7 +77,42 @@ export default function AiCallsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  async function loadAutoCallingSetting() {
+    const res = await fetch('/api/settings/property')
+    if (res.ok) {
+      const data = await res.json()
+      setAutoCallingEnabled(!!data.property?.autoAiCallingEnabled)
+    }
+  }
+
+  useEffect(() => { load(); loadAutoCallingSetting() }, [])
+
+  async function toggleAutoCalling() {
+    if (autoCallingEnabled === null) return
+    const next = !autoCallingEnabled
+    setAutoToggleLoading(true)
+    try {
+      const res = await fetch('/api/settings/property', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoAiCallingEnabled: next }),
+      })
+      if (!res.ok) {
+        toast.error('Failed to update auto-calling setting')
+        return
+      }
+      setAutoCallingEnabled(next)
+      toast.success(
+        next
+          ? 'Auto AI calling turned ON — new leads will be called ~5 min after creation.'
+          : 'Auto AI calling turned OFF — new leads will not be called automatically.'
+      )
+    } catch {
+      toast.error('Failed to update auto-calling setting')
+    } finally {
+      setAutoToggleLoading(false)
+    }
+  }
 
   async function triggerCall(leadId: string) {
     setTriggering(leadId)
@@ -85,6 +125,35 @@ export default function AiCallsPage() {
     setTriggering(null)
   }
 
+  async function startBulkCalling() {
+    setBulkLoading(true)
+    try {
+      const res = await fetch('/api/ai-calls/bulk-trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minDaysOld }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? 'Failed to start bulk calling')
+        return
+      }
+      if (data.queued === 0) {
+        toast.success(`No leads older than ${minDaysOld} day${minDaysOld === 1 ? '' : 's'} without a call — nothing to queue.`)
+      } else {
+        toast.success(
+          `Queued ${data.queued} call${data.queued === 1 ? '' : 's'}, staggered ~90s apart.` +
+            (data.overCap ? ` (capped at ${data.cappedAt} — more leads matched, run again after this batch finishes.)` : '')
+        )
+      }
+      await load()
+    } catch {
+      toast.error('Failed to start bulk calling')
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
   const total = calls.length
   const connected = calls.filter((c) => ['COMPLETED', 'IN_PROGRESS'].includes(c.status)).length
   const qualified = calls.filter((c) => c.outcome === 'QUALIFIED').length
@@ -95,14 +164,74 @@ export default function AiCallsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">AI Calling</h1>
-          <p className="text-sm text-muted-foreground mt-1">Automated qualification calls to all new leads</p>
+          <p className="text-sm text-muted-foreground mt-1">Qualification calls to leads — automatic and manual</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-card">
+            <label htmlFor="minDaysOld" className="text-xs text-muted-foreground whitespace-nowrap">
+              Leads older than
+            </label>
+            <input
+              id="minDaysOld"
+              type="number"
+              min={0}
+              value={minDaysOld}
+              onChange={(e) => setMinDaysOld(Math.max(0, Number(e.target.value) || 0))}
+              className="w-14 px-1.5 py-0.5 rounded border bg-background text-sm text-center"
+            />
+            <span className="text-xs text-muted-foreground whitespace-nowrap">days, never called</span>
+          </div>
+          <button
+            onClick={startBulkCalling}
+            disabled={bulkLoading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition"
+          >
+            <PhoneForwarded size={16} />
+            {bulkLoading ? 'Starting…' : 'Start AI Calling'}
+          </button>
+          <button
+            onClick={load}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-accent/20 transition"
+          >
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Auto-calling toggle — OFF by default; new leads are only auto-called once this is switched on */}
+      <div
+        className={`flex items-center justify-between rounded-xl border p-4 ${
+          autoCallingEnabled ? 'bg-green-50 border-green-200' : 'bg-muted/30'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          {autoCallingEnabled ? (
+            <Zap size={20} className="text-green-600" />
+          ) : (
+            <ZapOff size={20} className="text-muted-foreground" />
+          )}
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Auto AI Calling — new leads called ~5 min after creation
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {autoCallingEnabled
+                ? 'ON — every new lead (manual, CSV import, Google Sheets sync) will get an automatic AI call.'
+                : 'OFF — new leads will NOT be called automatically. Use "Start AI Calling" above, or the per-lead button, to call manually.'}
+            </p>
+          </div>
         </div>
         <button
-          onClick={load}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-accent/20 transition"
+          onClick={toggleAutoCalling}
+          disabled={autoCallingEnabled === null || autoToggleLoading}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 ${
+            autoCallingEnabled
+              ? 'bg-green-600 text-white hover:opacity-90'
+              : 'bg-card border hover:bg-accent/20'
+          }`}
         >
-          <RefreshCw size={16} />
-          Refresh
+          {autoCallingEnabled === null ? '…' : autoCallingEnabled ? 'Turn OFF' : 'Turn ON'}
         </button>
       </div>
 
@@ -137,7 +266,7 @@ export default function AiCallsPage() {
           <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>
         ) : calls.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground text-sm">
-            No calls yet. Calls auto-trigger 5 minutes after a lead is created.
+            No calls yet. Turn on Auto AI Calling above, or use &quot;Start AI Calling&quot; / the per-lead call button.
           </div>
         ) : (
           <div className="overflow-x-auto">

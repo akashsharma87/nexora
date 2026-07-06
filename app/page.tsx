@@ -9,7 +9,7 @@ import { DashboardLayout } from '@/components/dashboard-layout'
 import { KPICard } from '@/components/kpi-card'
 import { SmartInsights } from '@/components/smart-insights'
 import { TrendChart } from '@/components/trend-chart'
-import { eventTypeLabels, formatCurrency, formatDate, leadStageLabels, sourceLabels } from '@/lib/format'
+import { eventTypeLabels, formatCurrency, formatDate, formatHoursAgo, leadStageLabels, sourceLabels } from '@/lib/format'
 
 type DashboardData = {
   metrics: {
@@ -205,7 +205,7 @@ export default function Dashboard() {
                               <p className="text-sm font-medium text-foreground">{lead.name}</p>
                               <p className="text-xs text-muted-foreground">{eventTypeLabels[lead.eventType] ?? lead.eventType}</p>
                             </div>
-                            <span className="text-xs font-semibold text-amber-500">{hoursOld}h old</span>
+                            <span className="text-xs font-semibold text-amber-500">{formatHoursAgo(hoursOld)} old</span>
                           </Link>
                         )
                       })}
@@ -222,7 +222,7 @@ export default function Dashboard() {
                               <p className="text-sm font-medium text-foreground">{lead.name}</p>
                               <p className="text-xs text-muted-foreground">{leadStageLabels[lead.stage]}</p>
                             </div>
-                            <span className="text-xs font-semibold text-orange-500">{hoursOld}h ago</span>
+                            <span className="text-xs font-semibold text-orange-500">{formatHoursAgo(hoursOld)} ago</span>
                           </Link>
                         )
                       })}

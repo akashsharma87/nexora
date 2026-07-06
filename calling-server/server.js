@@ -44,7 +44,7 @@ wss.on('connection', (twilioWs, req) => {
   // Stream URL, so the query string below is only a fallback.
   const url = new URL(req.url, 'http://x')
   let callId = url.searchParams.get('callId') || null
-  let leadName = url.searchParams.get('name') || 'Sir/Madam'
+  let leadName = firstNameOf(url.searchParams.get('name') || 'Sir/Madam')
   let eventType = formatEventType(url.searchParams.get('eventType') || 'event')
   let propertyName = url.searchParams.get('propertyName') || 'our venue'
   let eventDate = url.searchParams.get('eventDate') || null
@@ -294,7 +294,7 @@ wss.on('connection', (twilioWs, req) => {
       // Lead params delivered via <Parameter> elements land here.
       const cp = event.start.customParameters || {}
       if (cp.callId) callId = cp.callId
-      if (cp.name) leadName = cp.name
+      if (cp.name) leadName = firstNameOf(cp.name)
       if (cp.eventType) eventType = formatEventType(cp.eventType)
       if (cp.propertyName) propertyName = cp.propertyName
       if (cp.eventDate) eventDate = cp.eventDate
@@ -369,6 +369,14 @@ function formatEventType(raw) {
   return raw.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// Leads are stored as full names (e.g. "Abhinav Jha") — Priya should only ever
+// address them by their first name, never the surname, and never verbatim as
+// stored if it has multiple words.
+function firstNameOf(fullName) {
+  const first = fullName.trim().split(/\s+/)[0]
+  return first || fullName
+}
+
 function buildInstructions({ leadName, eventType, propertyName, eventDate }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
   return `You are Priya, a warm banquet coordinator calling ${leadName} from ${propertyName}. ${leadName} submitted an enquiry about a ${eventType}${dateClause}.
@@ -398,9 +406,17 @@ Have a genuine, friendly phone chat to understand their event and gauge interest
 
 # UNCLEAR AUDIO
 - Only respond to what you clearly heard. If it's garbled or you're unsure, ask them warmly to repeat — "Sorry ji, thodi awaaz cut ho gayi, ek baar phir bataiye?" Never guess at content you didn't catch.
+- If what comes through is nonsensical, unrelated to the conversation, in a script/language that makes no sense in context, or sounds like a system/automated message (not something a person would naturally say) — that is NOT the lead speaking. Do NOT interpret it as them being busy, distracted, unavailable, or wanting to end the call. Just gently ask them to repeat themselves, same as any unclear audio.
+- Never assume the lead is busy/unavailable/wanting a callback unless they clearly and explicitly say so in words you understood.
+
+# ADDRESSING THE LEAD (IMPORTANT)
+- ${leadName} is their first name only — always use exactly this, never guess at a surname or a different form of it.
+- NEVER attach "ji" directly after their name (e.g. never say "${leadName} ji"). Say the name plainly on its own — "${leadName}, ..." — or drop the name and use "ji" elsewhere in the sentence instead. "ji" is fine as a general polite word elsewhere, just never stuck right after their name.
 
 # OPENING
-Open warmly and naturally, in your own words — e.g. "Hello, ${leadName} ji? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein banquet ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?" (Don't read it verbatim — say it fresh.)
+Open warmly and naturally, in your own words — e.g. "Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein banquet ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?" (Don't read it verbatim — say it fresh.)
+
+Once they confirm they're free to talk (any clear "yes"/"haan"/"bolo" type response), move straight into warm curiosity about their event — do NOT treat their "yes" as a reason to wrap up, offer a callback, or mention a senior colleague. Those closing moves are ONLY for when they say they're busy, not interested, or you've finished gathering what you need in WHAT TO LEARN below.
 
 # WHAT TO LEARN (through natural chat, NOT a checklist — react to each answer before the next)
 - The occasion, and roughly when they're planning it.

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
 import { getAllRows, mapRowToLead, generateRowHash } from '@/lib/google-sheets'
-import { scheduleLeadNurtureSequence } from '@/lib/automation'
+import { scheduleLeadNurtureSequence, scheduleAiCall } from '@/lib/automation'
 import { eventTypeLabels } from '@/lib/format'
 
 // Top-level sync endpoint — accepts connectionId in the body.
@@ -122,6 +122,7 @@ export async function POST(request: NextRequest) {
           propertyName: property?.name || 'our venue',
           managerName: manager?.name || 'our team',
         })
+        await scheduleAiCall({ leadId: lead.id, propertyId: lead.propertyId })
 
         results.created++
       } catch (err) {

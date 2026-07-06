@@ -7,7 +7,7 @@ import toast from 'react-hot-toast'
 import { Download, Filter, LayoutGrid, Loader2, Plus, Search, Upload } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
-import { formatCurrency, formatDate, eventTypeLabels, leadStageLabels, sourceLabels } from '@/lib/format'
+import { formatCurrency, formatDate, formatHoursAgo, eventTypeLabels, leadStageLabels, sourceLabels } from '@/lib/format'
 
 const sources = ['ALL', ...Object.keys(sourceLabels)]
 
@@ -223,7 +223,7 @@ export default function LeadsPage() {
                         </span>
                         {showSlaWarning && (
                           <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-500">
-                            &#9888; {Math.floor(hoursOld)}h old
+                            &#9888; {formatHoursAgo(Math.floor(hoursOld))} old
                           </span>
                         )}
                       </div>
