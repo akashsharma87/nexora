@@ -677,6 +677,38 @@ guest-count ranges / relative dates / occasion into real filterable fields, cach
 by header-hash. Not built — the notes-preservation fallback already means no data is lost, just
 not yet structured.
 
+### Hotfix, same day — sync hit the wrong route and defaulted to a non-existent "Sheet1" tab
+
+First real-world use immediately surfaced a bug Phase 1's dry run couldn't have caught: creating
+an all-tabs connection worked, but clicking **Sync Now** failed with
+`Unable to parse range: 'Sheet1'!A1:ZZ`.
+
+**Root cause:** there were **two separate sync route files with duplicated logic** —
+`app/api/integrations/sync/route.ts` (a top-level route from Session 5, added to dodge a
+Turbopack nested-route bug; this is the one the settings UI actually calls) and
+`app/api/integrations/[id]/sync/route.ts` (unreferenced anywhere in the codebase). Both sessions'
+all-tabs work only ever touched the `[id]/sync` copy. The real UI button hit the untouched
+top-level route, which still did `connection.tabName || 'Sheet1'` — since an all-tabs
+connection's `tabName` is `null` by design, it silently defaulted to a tab named "Sheet1" that
+doesn't exist in this sheet (real tabs are "Wedding," "Kitty Party," etc.), and Google's API
+rejected the range.
+
+**Fix:** extracted the entire sync implementation (tab looping, smart/legacy mapping branch,
+per-tab summaries, status write-back) into one shared `lib/sheet-sync.ts` —
+`syncIntegrationConnection(connection, userId)`. Both `app/api/integrations/sync/route.ts` and
+`app/api/integrations/[id]/sync/route.ts` are now thin wrappers that just resolve the connection
+and call it. This isn't just a bug fix — it removes the structural cause (two independently
+maintained copies of the same logic) so the next change to sync behavior can't silently miss one
+of them again.
+
+**Verified:** confirmed via a direct prod DB query that the connection saved correctly with
+`tabName: null` (the all-tabs sentinel worked) — the bug was purely in which route ran, not in
+connection creation or the mapping logic already dry-run-verified earlier this session.
+`tsc --noEmit` and `next build` clean. **Deliberately did not run a real sync against this
+connection to test it** — it has ~1,126 real leads, and a live sync fires `scheduleAiCall` +
+`scheduleLeadNurtureSequence` per new lead (real AI phone calls + WhatsApp messages to real
+people). That first real sync is the user's call to trigger, not something to smoke-test with.
+
 ---
 
 ## Production gaps (Railway) — not yet fixed
