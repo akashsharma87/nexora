@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Download, Filter, LayoutGrid, Loader2, Plus, Search, Upload } from 'lucide-react'
+import { Download, Loader2, Plus, Search, Upload } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { formatCurrency, formatDate, formatHoursAgo, eventTypeLabels, leadStageLabels, sourceLabels } from '@/lib/format'
@@ -22,6 +22,7 @@ type Lead = {
   budgetMin?: string | number | null
   budgetMax?: string | number | null
   source: string
+  sourceTab?: string | null
   stage: string
   leadScore: number
   createdAt: string
@@ -33,6 +34,12 @@ async function fetchLeads(params: URLSearchParams): Promise<{ leads: Lead[] }> {
   return response.json()
 }
 
+async function fetchSourceTabs(): Promise<{ tabs: { tab: string; count: number }[] }> {
+  const response = await fetch('/api/leads/source-tabs')
+  if (!response.ok) throw new Error('Failed to load campaigns')
+  return response.json()
+}
+
 const stages = ['ALL', 'NEW', 'CONTACTED', 'FOLLOW_UP', 'SITE_VISIT', 'PROPOSAL_SENT', 'NEGOTIATION', 'BOOKED', 'LOST']
 const eventTypes = ['ALL', 'SOCIAL_EVENTS', 'CORPORATE_EVENTS', 'BIRTHDAY_SOCIAL', 'PROMOTIONAL_EVENTS', 'ENTERTAINMENT_EVENTS', 'SEASONAL_THEMATIC']
 
@@ -41,6 +48,7 @@ export default function LeadsPage() {
   const [selectedStage, setSelectedStage] = useState('ALL')
   const [selectedEventType, setSelectedEventType] = useState('ALL')
   const [selectedSource, setSelectedSource] = useState('ALL')
+  const [selectedSourceTab, setSelectedSourceTab] = useState('ALL')
   const [isExporting, setIsExporting] = useState(false)
 
   const queryParams = useMemo(() => {
@@ -49,15 +57,22 @@ export default function LeadsPage() {
     if (selectedStage !== 'ALL') params.set('stage', selectedStage)
     if (selectedEventType !== 'ALL') params.set('eventType', selectedEventType)
     if (selectedSource !== 'ALL') params.set('source', selectedSource)
+    if (selectedSourceTab !== 'ALL') params.set('sourceTab', selectedSourceTab)
     return params
-  }, [searchQuery, selectedStage, selectedEventType, selectedSource])
+  }, [searchQuery, selectedStage, selectedEventType, selectedSource, selectedSourceTab])
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['leads', searchQuery, selectedStage, selectedEventType, selectedSource],
+    queryKey: ['leads', searchQuery, selectedStage, selectedEventType, selectedSource, selectedSourceTab],
     queryFn: () => fetchLeads(queryParams),
   })
 
+  const { data: sourceTabsData } = useQuery({
+    queryKey: ['leads-source-tabs'],
+    queryFn: fetchSourceTabs,
+  })
+
   const leads = data?.leads ?? []
+  const sourceTabs = sourceTabsData?.tabs ?? []
 
   async function handleExportCSV() {
     setIsExporting(true)
@@ -151,9 +166,21 @@ export default function LeadsPage() {
             ))}
           </select>
 
-          <button className="px-3 py-2 bg-card border border-border text-foreground rounded-lg hover:bg-muted transition-colors text-sm font-medium flex items-center gap-2 hover-lift">
-            <Filter size={18} />
-          </button>
+          {sourceTabs.length > 0 && (
+            <select
+              value={selectedSourceTab}
+              onChange={(event) => setSelectedSourceTab(event.target.value)}
+              className="px-3 py-2 bg-card border border-border text-foreground rounded-lg text-sm"
+            >
+              <option value="ALL">All campaigns</option>
+              {sourceTabs.map(({ tab, count }) => (
+                <option key={tab} value={tab}>
+                  {tab} ({count})
+                </option>
+              ))}
+            </select>
+          )}
+
           <button
             onClick={handleExportCSV}
             disabled={isExporting}
@@ -161,9 +188,6 @@ export default function LeadsPage() {
             className="px-3 py-2 bg-card border border-border text-foreground rounded-lg hover:bg-muted transition-colors text-sm font-medium flex items-center gap-2 hover-lift disabled:opacity-60"
           >
             {isExporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-          </button>
-          <button className="px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium">
-            <LayoutGrid size={16} />
           </button>
         </div>
 
@@ -224,6 +248,14 @@ export default function LeadsPage() {
                         {showSlaWarning && (
                           <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-500">
                             &#9888; {formatHoursAgo(Math.floor(hoursOld))} old
+                          </span>
+                        )}
+                        {lead.sourceTab && (
+                          <span
+                            className="px-2 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground"
+                            title="Sheet tab this lead was imported from"
+                          >
+                            {lead.sourceTab}
                           </span>
                         )}
                       </div>

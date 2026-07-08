@@ -752,6 +752,49 @@ tool for deliberately catching up a backlog.
 pre-existing unrelated errors, untouched files). `npx prisma db push` applied
 `autoWhatsappNurtureEnabled` to both local dev and production Postgres.
 
+### Same day — UI/UX pass on AI Calling, WhatsApp, Leads, and Dashboard
+
+User feedback from actually using the deployed app, screenshots included. Seven distinct fixes:
+
+1. **`/ai-calls` was missing the sidebar entirely.** Root cause: unlike every other page, it never
+   wrapped its content in `<DashboardLayout>`. Fixed.
+2. **"Start AI Calling" vs. the "Turn ON" toggle looked like duplicate controls.** They're not —
+   one is an ongoing auto-trigger for future leads, the other a one-time manual catch-up batch
+   for existing leads (filtered by age, capped at 50, staggered). Not a bug, just unclear UI.
+   Restructured into two explicitly labeled sections: "Automatic — applies to every new lead
+   going forward" and "Manual catch-up — call existing leads once, right now."
+3. **WhatsApp nurture had a toggle but no equivalent manual/filtered catch-up.** AI calling
+   already had `/api/ai-calls/bulk-trigger` for this; WhatsApp had nothing. Refactored
+   `lib/automation.ts`: split `scheduleLeadNurtureSequence` (the gated auto-trigger) from a new
+   exported `createNurtureSequence` (the unconditional row-creation logic, now takes an optional
+   `baseTime` so calls can be staggered). New `app/api/whatsapp/bulk-nurture-trigger/route.ts`
+   mirrors the calling one exactly — days-old filter, `scheduledMessages: { none: { templateType:
+   'INITIAL_RESPONSE' } }` to skip already-nurtured leads, capped at 50, staggered 60s apart. Same
+   two-section layout added to `/whatsapp`.
+4. **Sheet-tab was only visible buried in the lead's activity note**, even though a chip was
+   already added to the lead *detail* page in Session 11 — it just wasn't on the *list* page.
+   Added `lead.sourceTab` to the leads list card as the same muted chip style.
+5. **No way to filter leads by campaign/tab** — the exact scenario this whole sheet-sync feature
+   was built for (50 campaigns → distinct tabs) had no corresponding filter. New
+   `GET /api/leads/source-tabs` (distinct `sourceTab` values + counts for the property, via
+   `groupBy`) powers a new "All Campaigns" dropdown on the Leads page, wired into
+   `GET /api/leads`'s existing `where` clause via a new `sourceTab` query param.
+6. **Dashboard had no breakdown by campaign** — "1024 leads" with no way to see how many came
+   from which tab. New "Leads by Campaign" widget on the dashboard, same bar-list style as the
+   existing "Lead Stage Distribution" widget, reusing the same `source-tabs` endpoint. Only
+   renders when the property actually has sheet-tab-sourced leads.
+7. **Two dead buttons on the Leads page** — the funnel (Filter) and grid-view icons had no
+   `onClick` handler at all; they did nothing and no alternate view existed to switch to. Removed
+   both rather than leave non-functional UI. Left the CSV export button alone (it already works).
+
+**Verified:** `npx tsc --noEmit` and `npx next build` clean (same pre-existing unrelated errors,
+untouched files); all new routes (`/api/leads/source-tabs`, `/api/whatsapp/bulk-nurture-trigger`)
+registered in the build output. Confirmed via a local dev server that all four changed pages
+compile without runtime errors. **Not verified with a live logged-in visual pass** — no test
+credentials available in this environment; worth a quick manual check after deploy.
+
+**No schema change** — `Lead.sourceTab` already existed from Session 11; this was all reads/UI.
+
 ---
 
 ## Production gaps (Railway) — not yet fixed

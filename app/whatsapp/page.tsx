@@ -75,6 +75,8 @@ export default function WhatsAppPage() {
   const [showBroadcastForm, setShowBroadcastForm] = useState(false)
   const [segmentStage, setSegmentStage] = useState('')
   const [segmentEventType, setSegmentEventType] = useState('')
+  const [minDaysNurture, setMinDaysNurture] = useState(7)
+  const [bulkNurtureLoading, setBulkNurtureLoading] = useState(false)
 
   const countParams = new URLSearchParams()
   if (segmentStage) countParams.set('stage', segmentStage)
@@ -195,6 +197,35 @@ export default function WhatsAppPage() {
     })
   }
 
+  async function startBulkNurture() {
+    setBulkNurtureLoading(true)
+    try {
+      const res = await fetch('/api/whatsapp/bulk-nurture-trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minDaysOld: minDaysNurture }),
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        toast.error(result.error || 'Failed to start bulk nurturing')
+        return
+      }
+      if (result.queued === 0) {
+        toast.success(`No leads older than ${minDaysNurture} day${minDaysNurture === 1 ? '' : 's'} without nurturing — nothing to queue.`)
+      } else {
+        toast.success(
+          `Queued ${result.queued} lead${result.queued === 1 ? '' : 's'} for nurturing, staggered ~60s apart.` +
+            (result.overCap ? ` (capped at ${result.cappedAt} — more leads matched, run again after this batch finishes.)` : '')
+        )
+      }
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-scheduled'] })
+    } catch {
+      toast.error('Failed to start bulk nurturing')
+    } finally {
+      setBulkNurtureLoading(false)
+    }
+  }
+
   function submitBroadcast(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -222,25 +253,83 @@ export default function WhatsAppPage() {
             <h1 className="text-4xl font-bold text-foreground">WhatsApp Automation</h1>
             <p className="text-muted-foreground mt-1">Manage templates, nurture flows, and scheduled broadcasts.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <button onClick={() => setShowTemplateForm((value) => !value)} className="w-fit px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm font-medium flex items-center gap-2">
+            <Plus size={18} />
+            Create Template
+          </button>
+        </div>
+
+        {/* Section 1: ONGOING automatic behavior — applies to every future new lead, off by default */}
+        <div
+          className={`rounded-xl border p-4 ${
+            propertyQuery.data?.property?.autoWhatsappNurtureEnabled ? 'bg-green-50 border-green-200' : 'bg-muted/30'
+          }`}
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+            Automatic — applies to every new lead going forward
+          </p>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              {propertyQuery.data?.property?.autoWhatsappNurtureEnabled ? (
+                <Zap size={20} className="text-green-600" />
+              ) : (
+                <ZapOff size={20} className="text-muted-foreground" />
+              )}
+              <div>
+                <p className="text-sm font-medium text-foreground">Auto WhatsApp Nurture — 5-message sequence over 7 days</p>
+                <p className="text-xs text-muted-foreground">
+                  {propertyQuery.data?.property?.autoWhatsappNurtureEnabled
+                    ? 'ON — every new lead (manual, CSV import, Google Sheets sync) is enrolled automatically, capped at 20/hour.'
+                    : 'OFF — new leads will NOT be nurtured automatically. Use the manual catch-up below to nurture existing leads.'}
+                </p>
+              </div>
+            </div>
             <button
               onClick={() => toggleAutoNurture.mutate(!propertyQuery.data?.property?.autoWhatsappNurtureEnabled)}
               disabled={!propertyQuery.data || toggleAutoNurture.isPending}
-              title="When on, new leads automatically get the WhatsApp nurture sequence a few minutes after creation. Off by default so bulk imports/syncs never mass-message leads."
-              className={`w-fit px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition-colors disabled:opacity-50 ${
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 ${
                 propertyQuery.data?.property?.autoWhatsappNurtureEnabled
-                  ? 'bg-green-500/10 border-green-500/30 text-green-600'
-                  : 'bg-card border-border text-muted-foreground hover:bg-muted'
+                  ? 'bg-green-600 text-white hover:opacity-90'
+                  : 'bg-card border hover:bg-muted'
               }`}
             >
-              {propertyQuery.data?.property?.autoWhatsappNurtureEnabled ? <Zap size={16} /> : <ZapOff size={16} />}
-              Auto Nurture: {propertyQuery.data?.property?.autoWhatsappNurtureEnabled ? 'ON' : 'OFF'}
-            </button>
-            <button onClick={() => setShowTemplateForm((value) => !value)} className="w-fit px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm font-medium flex items-center gap-2">
-              <Plus size={18} />
-              Create Template
+              {!propertyQuery.data ? '…' : propertyQuery.data.property.autoWhatsappNurtureEnabled ? 'Turn OFF' : 'Turn ON'}
             </button>
           </div>
+        </div>
+
+        {/* Section 2: ONE-TIME manual batch — catches up existing leads right now, regardless of the toggle above */}
+        <div className="rounded-xl border bg-card p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+            Manual catch-up — nurture existing leads once, right now
+          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-background">
+              <label htmlFor="minDaysNurture" className="text-xs text-muted-foreground whitespace-nowrap">
+                Leads older than
+              </label>
+              <input
+                id="minDaysNurture"
+                type="number"
+                min={0}
+                value={minDaysNurture}
+                onChange={(e) => setMinDaysNurture(Math.max(0, Number(e.target.value) || 0))}
+                className="w-14 px-1.5 py-0.5 rounded border bg-background text-sm text-center"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">days, never nurtured</span>
+            </div>
+            <button
+              onClick={startBulkNurture}
+              disabled={bulkNurtureLoading}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition"
+            >
+              <Send size={16} />
+              {bulkNurtureLoading ? 'Starting…' : 'Start Nurturing'}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Queues up to 50 matching leads at once, staggered ~60s apart. Run again for more.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

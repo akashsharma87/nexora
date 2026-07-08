@@ -29,29 +29,24 @@ async function hourlyNurtureStartCount(propertyId: string): Promise<number> {
   })
 }
 
-export async function scheduleLeadNurtureSequence(params: {
+// The actual message-row creation, with no gating — used by the gated auto-trigger below AND
+// by the manual bulk "catch-up" trigger (app/api/whatsapp/bulk-nurture-trigger), which
+// deliberately bypasses the auto-toggle the same way the AI-calling bulk trigger bypasses
+// autoAiCallingEnabled: it's an explicit one-time user action, not automatic background behavior.
+// `baseTime` lets the bulk trigger stagger each lead's sequence a few minutes apart instead of
+// scheduling everyone's INITIAL_RESPONSE for the same instant.
+export async function createNurtureSequence(params: {
   leadId: string
-  propertyId: string
   phone: string
   leadName: string
   eventType: string
   eventDate: string | null
   propertyName: string
   managerName: string
+  baseTime?: Date
 }) {
-  const { leadId, propertyId, phone, leadName, eventType, eventDate, propertyName, managerName } = params
-
-  // Auto-scheduling on lead creation (manual add, CSV import, Google Sheets sync) is off by
-  // default — a property must explicitly opt in via the toggle on /whatsapp
-  // (Property.autoWhatsappNurtureEnabled). This does NOT gate a manually-sent WhatsApp message.
-  const property = await prisma.property.findUnique({
-    where: { id: propertyId },
-    select: { autoWhatsappNurtureEnabled: true },
-  })
-  if (!property?.autoWhatsappNurtureEnabled) return
-  if ((await hourlyNurtureStartCount(propertyId)) >= AUTOMATION_HOURLY_CAP) return
-
-  const now = new Date()
+  const { leadId, phone, leadName, eventType, eventDate, propertyName, managerName } = params
+  const now = params.baseTime ?? new Date()
 
   // All nurture templates below (except INITIAL_RESPONSE, handled separately) are
   // approved/designed with the same 2 vars: {{1}}=name, {{2}}=hotel_name — keep the
@@ -127,6 +122,32 @@ export async function scheduleLeadNurtureSequence(params: {
       payload: m.payload as unknown as Prisma.InputJsonValue,
     })),
   })
+}
+
+// Auto-scheduling on lead creation (manual add, CSV import, Google Sheets sync) is off by
+// default — a property must explicitly opt in via the toggle on /whatsapp
+// (Property.autoWhatsappNurtureEnabled). This does NOT gate a manually-sent WhatsApp message or
+// the manual bulk catch-up trigger, which calls createNurtureSequence directly.
+export async function scheduleLeadNurtureSequence(params: {
+  leadId: string
+  propertyId: string
+  phone: string
+  leadName: string
+  eventType: string
+  eventDate: string | null
+  propertyName: string
+  managerName: string
+}) {
+  const { propertyId, ...rest } = params
+
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { autoWhatsappNurtureEnabled: true },
+  })
+  if (!property?.autoWhatsappNurtureEnabled) return
+  if ((await hourlyNurtureStartCount(propertyId)) >= AUTOMATION_HOURLY_CAP) return
+
+  await createNurtureSequence(rest)
 }
 
 export async function schedulePostEventSequence(params: {

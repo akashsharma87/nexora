@@ -80,6 +80,12 @@ async function fetchMyTasks(): Promise<MyTasksData> {
   return response.json()
 }
 
+async function fetchSourceTabs(): Promise<{ tabs: { tab: string; count: number }[] }> {
+  const response = await fetch('/api/leads/source-tabs')
+  if (!response.ok) throw new Error('Failed to load campaigns')
+  return response.json()
+}
+
 export default function Dashboard() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
@@ -97,6 +103,14 @@ export default function Dashboard() {
     queryFn: fetchMyTasks,
     refetchInterval: 30000,
   })
+
+  const { data: sourceTabsData } = useQuery({
+    queryKey: ['leads-source-tabs'],
+    queryFn: fetchSourceTabs,
+  })
+
+  const sourceTabs = sourceTabsData?.tabs ?? []
+  const totalSourceTabCount = sourceTabs.reduce((total, row) => total + row.count, 0)
 
   const totalStageCount = data?.stageCounts.reduce((total, row) => total + row.count, 0) ?? 0
   const topSource = data?.sourceCounts.sort((a, b) => b.count - a.count)[0]
@@ -326,6 +340,36 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+
+            {sourceTabs.length > 0 && (
+              <div className="bg-card rounded-xl border border-border p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="font-semibold text-foreground">Leads by Campaign</h3>
+                  <Link href="/leads" className="text-sm text-primary hover:underline">
+                    View in Leads
+                  </Link>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+                  {sourceTabs.slice(0, 9).map((row) => {
+                    const percentage = totalSourceTabCount > 0 ? Math.round((row.count / totalSourceTabCount) * 100) : 0
+                    return (
+                      <div key={row.tab}>
+                        <div className="flex justify-between items-center mb-1.5 gap-2">
+                          <span className="text-sm text-muted-foreground truncate" title={row.tab}>{row.tab}</span>
+                          <span className="text-sm font-semibold text-foreground whitespace-nowrap">{row.count}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-accent rounded-full" style={{ width: `${percentage}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {sourceTabs.length > 9 && (
+                  <p className="text-xs text-muted-foreground mt-4">+{sourceTabs.length - 9} more campaigns — see the Leads page filter for the full list.</p>
+                )}
+              </div>
+            )}
 
             <div className="bg-card rounded-xl border border-border p-6">
               <div className="flex justify-between items-center mb-6">

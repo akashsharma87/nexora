@@ -18,12 +18,14 @@ export async function GET(request: NextRequest) {
   const stage = searchParams.get('stage')
   const eventType = searchParams.get('eventType')
   const source = searchParams.get('source')
+  const sourceTab = searchParams.get('sourceTab')
 
   const where: Prisma.LeadWhereInput = {
     propertyId: session.user.propertyId,
     ...(stage && stage !== 'ALL' ? { stage: stage as Prisma.EnumLeadStageFilter['equals'] } : {}),
     ...(eventType && eventType !== 'ALL' ? { eventType: eventType as Prisma.EnumEventTypeFilter['equals'] } : {}),
     ...(source && source !== 'ALL' ? { source: source as Prisma.EnumLeadSourceFilter['equals'] } : {}),
+    ...(sourceTab && sourceTab !== 'ALL' ? { sourceTab } : {}),
     ...(search
       ? {
           OR: [

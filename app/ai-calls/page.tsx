@@ -5,6 +5,8 @@ import { Phone, PhoneCall, PhoneMissed, PhoneOff, CheckCircle, XCircle, Clock, R
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 
+import { DashboardLayout } from '@/components/dashboard-layout'
+
 type AiCall = {
   id: string
   status: string
@@ -160,14 +162,68 @@ export default function AiCallsPage() {
   const pending = calls.filter((c) => c.status === 'PENDING').length
 
   return (
+    <DashboardLayout>
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">AI Calling</h1>
           <p className="text-sm text-muted-foreground mt-1">Qualification calls to leads — automatic and manual</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-card">
+        <button
+          onClick={load}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-accent/20 transition"
+        >
+          <RefreshCw size={16} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Section 1: ONGOING automatic behavior — applies to every future new lead, off by default */}
+      <div
+        className={`rounded-xl border p-4 ${autoCallingEnabled ? 'bg-green-50 border-green-200' : 'bg-muted/30'}`}
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+          Automatic — applies to every new lead going forward
+        </p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {autoCallingEnabled ? (
+              <Zap size={20} className="text-green-600" />
+            ) : (
+              <ZapOff size={20} className="text-muted-foreground" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Auto AI Calling — new leads called ~5 min after creation
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {autoCallingEnabled
+                  ? 'ON — every new lead (manual, CSV import, Google Sheets sync) will get an automatic AI call, capped at 20/hour.'
+                  : 'OFF — new leads will NOT be called automatically. Use the manual catch-up below, or the per-lead button, to call.'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={toggleAutoCalling}
+            disabled={autoCallingEnabled === null || autoToggleLoading}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 ${
+              autoCallingEnabled
+                ? 'bg-green-600 text-white hover:opacity-90'
+                : 'bg-card border hover:bg-accent/20'
+            }`}
+          >
+            {autoCallingEnabled === null ? '…' : autoCallingEnabled ? 'Turn OFF' : 'Turn ON'}
+          </button>
+        </div>
+      </div>
+
+      {/* Section 2: ONE-TIME manual batch — catches up existing leads right now, regardless of the toggle above */}
+      <div className="rounded-xl border bg-card p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+          Manual catch-up — call existing leads once, right now
+        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-background">
             <label htmlFor="minDaysOld" className="text-xs text-muted-foreground whitespace-nowrap">
               Leads older than
             </label>
@@ -189,50 +245,10 @@ export default function AiCallsPage() {
             <PhoneForwarded size={16} />
             {bulkLoading ? 'Starting…' : 'Start AI Calling'}
           </button>
-          <button
-            onClick={load}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium hover:bg-accent/20 transition"
-          >
-            <RefreshCw size={16} />
-            Refresh
-          </button>
         </div>
-      </div>
-
-      {/* Auto-calling toggle — OFF by default; new leads are only auto-called once this is switched on */}
-      <div
-        className={`flex items-center justify-between rounded-xl border p-4 ${
-          autoCallingEnabled ? 'bg-green-50 border-green-200' : 'bg-muted/30'
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          {autoCallingEnabled ? (
-            <Zap size={20} className="text-green-600" />
-          ) : (
-            <ZapOff size={20} className="text-muted-foreground" />
-          )}
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              Auto AI Calling — new leads called ~5 min after creation
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {autoCallingEnabled
-                ? 'ON — every new lead (manual, CSV import, Google Sheets sync) will get an automatic AI call.'
-                : 'OFF — new leads will NOT be called automatically. Use "Start AI Calling" above, or the per-lead button, to call manually.'}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={toggleAutoCalling}
-          disabled={autoCallingEnabled === null || autoToggleLoading}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 ${
-            autoCallingEnabled
-              ? 'bg-green-600 text-white hover:opacity-90'
-              : 'bg-card border hover:bg-accent/20'
-          }`}
-        >
-          {autoCallingEnabled === null ? '…' : autoCallingEnabled ? 'Turn OFF' : 'Turn ON'}
-        </button>
+        <p className="text-xs text-muted-foreground mt-2">
+          Queues up to 50 matching leads at once, dialed ~90s apart. Run again for more.
+        </p>
       </div>
 
       {/* Stats */}
@@ -411,5 +427,6 @@ export default function AiCallsPage() {
         </div>
       )}
     </div>
+    </DashboardLayout>
   )
 }
