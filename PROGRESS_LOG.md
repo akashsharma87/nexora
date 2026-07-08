@@ -602,6 +602,83 @@ per tab before building — flagged, not actioned.
 
 ---
 
+## Session 12 — July 8, 2026
+
+### Google Sheets — all-tabs sync with zero manual column mapping (Phase 1 of `SHEET_SYNC_PHASE1_PLAN.md`)
+
+Session 11 shipped "sync every tab in a sheet," but it inherited a flaw exposed the moment a
+real sheet was tried: a single shared `columnMap` applied to every tab. The user's real setup —
+one sheet per platform, one tab per campaign (e.g. "Wedding", "Kitty Party", "Presidential
+Suite") — has a *different* column layout per tab (a fixed-price suite tab has no budget column
+at all), and manually mapping 50 campaign tabs by hand was explicitly ruled out as unworkable.
+
+**Grounded the fix in real data before writing code:** probed the actual connected sheet
+("Citadel Bangalore - Leads," 16 tabs) using the live Railway service-account credentials (local
+`.env`/`.env.local` keys and the on-disk service-account JSON were both stale — `invalid_grant` —
+so `railway run` was used to inject the working key). Findings, all confirmed against real
+headers/values:
+- 15 real tabs + 1 junk empty tab (`Sheet18`), all 16 header layouts distinct — one shared
+  mapping is structurally impossible.
+- Name/Phone/Email exist on every tab, just spelled differently (`Ph Number` vs `phone no` vs
+  `Phone Number`) — coverable by keyword aliases, no LLM needed for the fields that actually
+  create a lead.
+- Budget genuinely absent on 14 of 15 tabs (fixed-price rooms) — must be optional per tab, not
+  required.
+- Guest counts are buckets/ranges (`under_20`, `200+`, `3–4_guests`), not integers; event-date
+  columns are often relative phrases (`this_month`, `Later`, `Aug`) — both would corrupt data if
+  force-parsed.
+- A Meta test-lead dummy row (`<test lead: dummy data for full_name>`) sits in one tab and must
+  never be imported as real.
+
+**`lib/google-sheets.ts`:**
+- Range widened `Z` → `ZZ` on both header and full-row reads — a latent bug where any sheet with
+  >26 columns would silently truncate data past column Z.
+- `autoDetectColumnMap` gained aliases actually observed in the wild: `ph number`/`ph no`
+  (headers using "Ph" don't contain the contiguous substring "phone" the other aliases rely on),
+  and `no. of guest`/`how many guests`/`how many people`/`expected guest count`/`number of
+  guest`/`no of people`/`group size` for the many ways sheets phrase guest count.
+- New `isEmptyTab()` / `isPlaceholderRow()` guards.
+- New `mapRowToLeadSmart(row, headers, columnMap, tabName)` — the core of Phase 1: event type
+  comes from the **tab name** (the tab *is* the campaign), not a column; guest count and event
+  date are only accepted when they parse as a clean integer / real date, otherwise the raw text
+  is preserved in `notes` instead of being guessed wrong or dropped; every column the map didn't
+  claim (follow-ups, remarks, street address, occasion questions) is folded into `notes`
+  verbatim — nothing from the row is lost even when it can't be structured.
+
+**`app/api/integrations/[id]/sync/route.ts`:** `syncTab()` takes a `smart` flag — legacy
+single-tab connections keep using the manual `connection.columnMap` untouched; all-tabs
+connections auto-detect per tab via `mapRowToLeadSmart`. Returns a per-tab summary (created/
+skipped/failed/detected fields/warnings) alongside the run totals.
+
+**`app/api/integrations/test/route.ts`:** new `allTabs` preview mode — given just a sheet URL,
+returns every tab with its auto-detected fields, derived event type, and a missing-name/phone
+flag. Powers a preview table instead of a mapping screen.
+
+**`app/settings/integrations/integrations-content.tsx`:** connect flow rebuilt with a mode
+toggle. All-tabs (new default): name → source → paste sheet URL → **Connect & Preview** → a
+table of every tab with detected fields/event type/status → **Save**. No tab dropdown, no
+mapping UI. Single-tab (legacy, manual mapping) kept fully intact behind the toggle for cases
+that still need it.
+
+**Verified before shipping — dry run against the real Citadel sheet** (`tmp/dry-run-sheet.ts`,
+run via `railway run ... npx tsx`, not committed): **1,126 of 1,136 real rows would import
+cleanly across all 15 tabs with zero manual mapping** — every tab resolved name+phone (including
+the "Ph Number" abbreviation), `Sheet18` correctly skipped as empty, 6 Meta test-lead placeholder
+rows correctly filtered, guest-count ranges and relative dates correctly preserved as text
+instead of corrupted, non-numeric budget values (`below_₹5l`) preserved in notes instead of
+silently dropped. `npx tsc --noEmit` and `npx next build` clean (same pre-existing unrelated
+errors as prior sessions, in files untouched this session).
+
+**No schema change this session** — `Lead.sourceTab`/`LeadExternalSource.sourceTab` from Session
+11 already cover tab attribution; this session only changed how columns are mapped per tab.
+
+**Deferred (Phase 2, per the plan doc, only if needed):** OpenAI-based structured extraction of
+guest-count ranges / relative dates / occasion into real filterable fields, cached once per tab
+by header-hash. Not built — the notes-preservation fallback already means no data is lost, just
+not yet structured.
+
+---
+
 ## Production gaps (Railway) — not yet fixed
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` missing from Railway env
 - `OPENAI_API_KEY` = placeholder — AI proposal generation non-functional

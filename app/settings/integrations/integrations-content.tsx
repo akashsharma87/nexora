@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Check, ChevronDown, ChevronRight, Loader2, Plug, Plus, RefreshCw, Search, Sheet, Trash2, X, Zap } from 'lucide-react'
+import { AlertTriangle, Check, Loader2, Plug, Plus, RefreshCw, Search, Sheet, Trash2, X, Zap } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
-import { sourceLabels, formatDate } from '@/lib/format'
+import { sourceLabels, eventTypeLabels, formatDate } from '@/lib/format'
 
 type AdAccount = {
   id: string
@@ -166,6 +166,17 @@ type Connection = {
   lastSyncError: string | null
 }
 
+type AllTabsPreviewTab = {
+  tab: string
+  empty: boolean
+  headers: string[]
+  detectedFields: string[]
+  missingName: boolean
+  missingPhone: boolean
+  eventType: string
+  error?: string
+}
+
 const FIELD_LABELS: Record<string, string> = {
   name: 'Name *',
   phone: 'Phone *',
@@ -180,20 +191,25 @@ const FIELD_LABELS: Record<string, string> = {
 
 const SOURCES = Object.keys(sourceLabels)
 
+const EMPTY_FORM = {
+  name: '', provider: 'GOOGLE_SHEETS', source: 'DIRECT',
+  sheetId: '', tabName: 'Sheet1', headerRow: 1, allTabs: true,
+}
+
 export function IntegrationsPageContent() {
   const queryClient = useQueryClient()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [showForm, setShowForm] = useState(false)
+  const [connectMode, setConnectMode] = useState<'all' | 'single'>('all')
   const [testResult, setTestResult] = useState<{ headers: string[]; sampleRows: string[][]; suggestedMap: Record<string, string> } | null>(null)
   const [columnMap, setColumnMap] = useState<Record<string, string>>({})
   const [isTesting, setIsTesting] = useState(false)
   const [availableTabs, setAvailableTabs] = useState<string[]>([])
   const [syncingId, setSyncingId] = useState<string | null>(null)
-  const [form, setForm] = useState({
-    name: '', provider: 'GOOGLE_SHEETS', source: 'DIRECT',
-    sheetId: '', tabName: 'Sheet1', headerRow: 1, allTabs: false,
-  })
+  const [allTabsPreview, setAllTabsPreview] = useState<AllTabsPreviewTab[] | null>(null)
+  const [isPreviewing, setIsPreviewing] = useState(false)
+  const [form, setForm] = useState(EMPTY_FORM)
 
   const { data, isLoading } = useQuery({
     queryKey: ['integrations'],
@@ -248,6 +264,25 @@ export function IntegrationsPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  function resetForm() {
+    setShowForm(false)
+    setConnectMode('all')
+    setTestResult(null)
+    setColumnMap({})
+    setAvailableTabs([])
+    setAllTabsPreview(null)
+    setForm(EMPTY_FORM)
+  }
+
+  function switchMode(mode: 'all' | 'single') {
+    setConnectMode(mode)
+    setTestResult(null)
+    setColumnMap({})
+    setAvailableTabs([])
+    setAllTabsPreview(null)
+    setForm({ ...form, allTabs: mode === 'all' })
+  }
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const r = await fetch('/api/integrations', {
@@ -261,11 +296,7 @@ export function IntegrationsPageContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integrations'] })
       toast.success('Integration saved')
-      setShowForm(false)
-      setTestResult(null)
-      setColumnMap({})
-      setAvailableTabs([])
-      setForm({ name: '', provider: 'GOOGLE_SHEETS', source: 'DIRECT', sheetId: '', tabName: 'Sheet1', headerRow: 1, allTabs: false })
+      resetForm()
     },
     onError: () => toast.error('Failed to save integration'),
   })
@@ -281,6 +312,39 @@ export function IntegrationsPageContent() {
     },
     onError: () => toast.error('Failed to remove integration'),
   })
+
+  async function handlePreviewAllTabs() {
+    if (!form.sheetId) { toast.error('Enter a Sheet ID or URL first'); return }
+    if (!form.name) { toast.error('Give this connection a name first'); return }
+
+    setIsPreviewing(true)
+    try {
+      const res = await fetch('/api/integrations/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetId: form.sheetId, allTabs: true }),
+      })
+      const result = await res.json()
+      if (!res.ok) { toast.error(result.error || 'Failed to read sheet'); return }
+
+      const tabs: AllTabsPreviewTab[] = result.tabs || []
+      setAllTabsPreview(tabs)
+
+      const realTabs = tabs.filter((t) => !t.empty)
+      const problemTabs = realTabs.filter((t) => t.missingName || t.missingPhone)
+      if (realTabs.length === 0) {
+        toast.error('No usable tabs found in this sheet')
+      } else if (problemTabs.length > 0) {
+        toast.error(`${problemTabs.length} of ${realTabs.length} tabs are missing a name/phone column — check below`, { duration: 6000 })
+      } else {
+        toast.success(`${realTabs.length} tab${realTabs.length === 1 ? '' : 's'} ready to sync`)
+      }
+    } catch {
+      toast.error('Failed to read sheet — check the Sheet ID and access permissions')
+    } finally {
+      setIsPreviewing(false)
+    }
+  }
 
   async function handleTest() {
     if (!form.sheetId) { toast.error('Enter a Sheet ID or URL first'); return }
@@ -327,7 +391,11 @@ export function IntegrationsPageContent() {
       const result = await r.json()
       if (!r.ok) { toast.error(result.error || 'Sync failed'); return }
       queryClient.invalidateQueries({ queryKey: ['integrations'] })
-      toast.success(`Sync complete: ${result.created} new leads imported, ${result.skipped} duplicates skipped`)
+      const tabCount = result.tabs?.length
+      toast.success(
+        `Sync complete: ${result.created} new leads imported, ${result.skipped} duplicates skipped` +
+        (tabCount > 1 ? ` across ${tabCount} tabs` : '')
+      )
     } catch {
       toast.error('Sync failed')
     } finally {
@@ -377,10 +445,10 @@ export function IntegrationsPageContent() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-2xl font-bold text-white">Lead Integrations</h2>
-            <p className="text-zinc-400 text-sm mt-0.5">Import leads from Google Sheets — one connection per source</p>
+            <p className="text-zinc-400 text-sm mt-0.5">Import leads from Google Sheets</p>
           </div>
           <button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => (showForm ? resetForm() : setShowForm(true))}
             className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors"
           >
             <Plus className="h-4 w-4" />
@@ -399,8 +467,34 @@ export function IntegrationsPageContent() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wide">New Sheet Connection</h2>
-              <button onClick={() => { setShowForm(false); setTestResult(null) }} className="text-zinc-500 hover:text-white">
+              <button onClick={resetForm} className="text-zinc-500 hover:text-white">
                 <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Mode toggle */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => switchMode('all')}
+                className={`flex-1 text-left px-3 py-2.5 rounded-lg border text-xs transition-colors ${
+                  connectMode === 'all'
+                    ? 'bg-violet-600/20 border-violet-500/50 text-white'
+                    : 'bg-zinc-800/60 border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                <span className="font-medium block">All tabs (recommended)</span>
+                <span className="text-zinc-500">Every tab = one campaign. Columns auto-detected per tab, no mapping.</span>
+              </button>
+              <button
+                onClick={() => switchMode('single')}
+                className={`flex-1 text-left px-3 py-2.5 rounded-lg border text-xs transition-colors ${
+                  connectMode === 'single'
+                    ? 'bg-violet-600/20 border-violet-500/50 text-white'
+                    : 'bg-zinc-800/60 border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                <span className="font-medium block">Single tab</span>
+                <span className="text-zinc-500">One fixed tab, one source, manual column mapping.</span>
               </button>
             </div>
 
@@ -410,11 +504,11 @@ export function IntegrationsPageContent() {
                 <input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Website Leads — Mumbai"
+                  placeholder="e.g. Citadel Meta Leads"
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500"
                 />
               </div>
-              <div>
+              <div className={connectMode === 'all' ? 'col-span-2' : ''}>
                 <label className="block text-xs text-zinc-400 mb-1">Lead Source *</label>
                 <select
                   value={form.source}
@@ -423,31 +517,36 @@ export function IntegrationsPageContent() {
                 >
                   {SOURCES.map((s) => <option key={s} value={s}>{sourceLabels[s]}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">
-                  {form.allTabs ? 'Preview Tab (for column detection)' : 'Tab Name'}
-                </label>
-                {availableTabs.length > 0 ? (
-                  <select
-                    value={form.tabName}
-                    onChange={(e) => { setForm({ ...form, tabName: e.target.value }); setAvailableTabs([]) }}
-                    className="w-full bg-zinc-800 border border-amber-500/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-                  >
-                    {availableTabs.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                ) : (
-                  <input
-                    value={form.tabName}
-                    onChange={(e) => setForm({ ...form, tabName: e.target.value })}
-                    placeholder="Sheet1"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500"
-                  />
-                )}
-                {availableTabs.length > 0 && (
-                  <p className="text-xs text-amber-400 mt-1">Select the correct tab and test again.</p>
+                {connectMode === 'all' && (
+                  <p className="text-xs text-zinc-500 mt-1">
+                    This whole sheet feeds one platform — event type comes from each tab&apos;s name instead.
+                  </p>
                 )}
               </div>
+              {connectMode === 'single' && (
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Tab Name</label>
+                  {availableTabs.length > 0 ? (
+                    <select
+                      value={form.tabName}
+                      onChange={(e) => { setForm({ ...form, tabName: e.target.value }); setAvailableTabs([]) }}
+                      className="w-full bg-zinc-800 border border-amber-500/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                    >
+                      {availableTabs.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      value={form.tabName}
+                      onChange={(e) => setForm({ ...form, tabName: e.target.value })}
+                      placeholder="Sheet1"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500"
+                    />
+                  )}
+                  {availableTabs.length > 0 && (
+                    <p className="text-xs text-amber-400 mt-1">Select the correct tab and test again.</p>
+                  )}
+                </div>
+              )}
               <div className="col-span-2">
                 <label className="block text-xs text-zinc-400 mb-1">Google Sheet URL or ID *</label>
                 <input
@@ -457,22 +556,81 @@ export function IntegrationsPageContent() {
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500"
                 />
               </div>
-              <label className="col-span-2 flex items-start gap-2 text-xs text-zinc-400">
-                <input
-                  type="checkbox"
-                  checked={form.allTabs}
-                  onChange={(e) => setForm({ ...form, allTabs: e.target.checked })}
-                  className="mt-0.5 accent-violet-600"
-                />
-                <span>
-                  Sync every tab in this sheet (e.g. each tab is a different campaign). All tabs must share the
-                  same columns — the mapping below is applied to all of them. Each imported lead will show which
-                  tab it came from.
-                </span>
-              </label>
             </div>
 
-            {!testResult ? (
+            {connectMode === 'all' ? (
+              <div>
+                {!allTabsPreview ? (
+                  <button
+                    onClick={handlePreviewAllTabs}
+                    disabled={isPreviewing}
+                    className="w-full py-2.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    {isPreviewing ? <><Loader2 className="h-4 w-4 animate-spin" />Reading sheet...</> : <><Sheet className="h-4 w-4" />Connect &amp; Preview</>}
+                  </button>
+                ) : (
+                  <div>
+                    <p className="text-xs text-zinc-500 mb-2">
+                      {allTabsPreview.filter((t) => !t.empty).length} of {allTabsPreview.length} tabs will be synced.
+                      Event type comes from the tab name; anything not auto-detected is kept in the lead&apos;s notes.
+                    </p>
+                    <div className="mb-4 overflow-x-auto rounded-lg border border-zinc-800">
+                      <table className="text-xs w-full">
+                        <thead className="bg-zinc-800/60">
+                          <tr>
+                            <th className="text-left px-3 py-2 text-zinc-400 font-medium">Tab</th>
+                            <th className="text-left px-3 py-2 text-zinc-400 font-medium">Event Type</th>
+                            <th className="text-left px-3 py-2 text-zinc-400 font-medium">Detected Fields</th>
+                            <th className="text-left px-3 py-2 text-zinc-400 font-medium">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allTabsPreview.map((t) => (
+                            <tr key={t.tab} className="border-t border-zinc-800">
+                              <td className="px-3 py-2 text-white font-medium whitespace-nowrap">{t.tab}</td>
+                              <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
+                                {t.empty ? '—' : eventTypeLabels[t.eventType] || t.eventType}
+                              </td>
+                              <td className="px-3 py-2 text-zinc-400">
+                                {t.empty ? '—' : t.detectedFields.length > 0 ? t.detectedFields.join(', ') : 'none'}
+                              </td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                {t.empty ? (
+                                  <span className="text-zinc-600">Empty — skipped</span>
+                                ) : t.missingName || t.missingPhone ? (
+                                  <span className="text-amber-400 flex items-center gap-1">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    missing {[t.missingName && 'name', t.missingPhone && 'phone'].filter(Boolean).join(' & ')}
+                                  </span>
+                                ) : (
+                                  <span className="text-green-400 flex items-center gap-1"><Check className="h-3 w-3" />ready</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setAllTabsPreview(null)}
+                        className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Re-check
+                      </button>
+                      <button
+                        onClick={() => createMutation.mutate()}
+                        disabled={createMutation.isPending || allTabsPreview.every((t) => t.empty)}
+                        className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                      >
+                        {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                        Save Connection
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : !testResult ? (
               <button
                 onClick={handleTest}
                 disabled={isTesting}
@@ -525,7 +683,7 @@ export function IntegrationsPageContent() {
                   className="w-full py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                 >
                   {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  Save & Confirm Mapping
+                  Save &amp; Confirm Mapping
                 </button>
               </div>
             )}

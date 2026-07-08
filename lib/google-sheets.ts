@@ -34,7 +34,9 @@ export async function getSheetHeaders(
 ): Promise<{ headers: string[]; sampleRows: string[][] }> {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
-  const range = `'${tabName}'!A${headerRow}:Z${headerRow + 3}`
+  // ZZ rather than Z — campaign-form exports and CRM tools regularly exceed 26 columns; capping
+  // at Z would silently truncate real columns into the "everything else" notes bucket.
+  const range = `'${tabName}'!A${headerRow}:ZZ${headerRow + 3}`
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
@@ -54,7 +56,7 @@ export async function getAllRows(
 ): Promise<{ headers: string[]; rows: Record<string, string>[]; rawRows: string[][] }> {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
-  const range = `'${tabName}'!A${headerRow}:Z`
+  const range = `'${tabName}'!A${headerRow}:ZZ`
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
@@ -127,11 +129,17 @@ export function autoDetectColumnMap(headers: string[]): Record<string, string> {
   const map: Record<string, string> = {}
   const matchers: Record<string, string[]> = {
     name: ['name', 'full name', 'client name', 'lead name', 'contact'],
-    phone: ['phone', 'mobile', 'contact no', 'phone number', 'mobile number', 'whatsapp'],
+    // 'ph number'/'ph no' cover abbreviated headers ("Ph Number") that don't contain the
+    // contiguous substring "phone" the other aliases rely on.
+    phone: ['phone', 'mobile', 'contact no', 'phone number', 'mobile number', 'whatsapp', 'ph number', 'ph no'],
     email: ['email', 'email id', 'email address', 'e-mail'],
     eventType: ['event type', 'event', 'type', 'occasion', 'function'],
     eventDate: ['event date', 'date', 'wedding date', 'function date', 'event on'],
-    guestCount: ['guests', 'pax', 'guest count', 'number of guests', 'headcount', 'no of guests'],
+    guestCount: [
+      'guests', 'pax', 'guest count', 'number of guests', 'headcount', 'no of guests',
+      'no. of guest', 'how many guests', 'how many people', 'expected guest count',
+      'number of guest', 'no of people', 'group size',
+    ],
     budgetMin: ['budget min', 'min budget', 'budget from', 'budget (min)'],
     budgetMax: ['budget max', 'max budget', 'budget', 'budget (lakhs)', 'budget (max)'],
     notes: ['notes', 'remarks', 'comments', 'message', 'requirements', 'details'],
@@ -146,4 +154,106 @@ export function autoDetectColumnMap(headers: string[]): Record<string, string> {
     }
   }
   return map
+}
+
+// A tab with no real header row (e.g. an unused placeholder tab left over from setup) —
+// skip it entirely rather than attempting to import garbage rows.
+export function isEmptyTab(headers: string[]): boolean {
+  return headers.length === 0 || headers.every((h) => !h.trim())
+}
+
+// Some lead-gen platforms (e.g. Meta Lead Ads test mode) leave literal placeholder rows like
+// "<test lead: dummy data for full_name>" in the sheet — never import these as real leads.
+const PLACEHOLDER_PATTERN = /<test lead/i
+export function isPlaceholderRow(mapped: { name?: string; phone?: string }): boolean {
+  return PLACEHOLDER_PATTERN.test(mapped.name || '') || PLACEHOLDER_PATTERN.test(mapped.phone || '')
+}
+
+function parseIntegerGuestCount(raw: string): number | undefined {
+  const trimmed = raw.trim()
+  // Only accept a clean integer (optionally comma-grouped) — reject buckets/ranges like
+  // "under_20", "200+", "3-4_guests"; those are preserved verbatim in notes instead of guessed.
+  if (!trimmed || !/^\d[\d,]*$/.test(trimmed)) return undefined
+  const n = parseInt(trimmed.replace(/,/g, ''), 10)
+  return Number.isFinite(n) ? n : undefined
+}
+
+function parseEventDateValue(raw: string): string | undefined {
+  const trimmed = raw.trim()
+  // Require a digit — rules out relative/vague phrases ("this_month", "flexible", "Later", a
+  // bare month name) that `new Date()` would otherwise happily mis-parse into a wrong date.
+  if (!trimmed || !/\d/.test(trimmed)) return undefined
+  const date = new Date(trimmed)
+  if (Number.isNaN(date.getTime())) return undefined
+  const year = date.getFullYear()
+  if (year < 2000 || year > 2100) return undefined
+  return date.toISOString()
+}
+
+export type SmartLeadFields = {
+  name?: string
+  phone?: string
+  email?: string
+  eventType: string
+  eventDate?: string
+  guestCount?: number
+  budgetMin?: number
+  budgetMax?: number
+  notes?: string
+}
+
+// Used for campaign sheets where every tab is a different lead form with its own column
+// layout (e.g. a "Presidential Suite" tab with no budget column vs. a "Wedding" tab that has
+// one) — columns are auto-detected per tab instead of relying on one shared manual mapping,
+// and the event type comes from the tab name itself (the tab *is* the campaign).
+export function mapRowToLeadSmart(
+  row: Record<string, string>,
+  headers: string[],
+  columnMap: Record<string, string>,
+  tabName: string
+): SmartLeadFields {
+  const get = (field: string) => (columnMap[field] ? (row[columnMap[field]] || '').trim() : '')
+  const consumedHeaders = new Set(Object.values(columnMap))
+
+  const guestRaw = get('guestCount')
+  const guestCount = parseIntegerGuestCount(guestRaw)
+
+  const dateRaw = get('eventDate')
+  const eventDate = parseEventDateValue(dateRaw)
+
+  const budgetMinRaw = get('budgetMin')
+  const budgetMaxRaw = get('budgetMax')
+  const budgetMin = budgetMinRaw ? parseFloat(budgetMinRaw) : NaN
+  const budgetMax = budgetMaxRaw ? parseFloat(budgetMaxRaw) : NaN
+
+  const notesParts: string[] = []
+  const explicitNotes = get('notes')
+  if (explicitNotes) notesParts.push(explicitNotes)
+  // A mapped column whose value didn't parse cleanly still gets preserved, just as free text —
+  // e.g. "Guests: under_20" or "Budget: below_₹5l" — instead of being silently dropped.
+  if (guestRaw && guestCount === undefined) notesParts.push(`Guests: ${guestRaw}`)
+  if (dateRaw && !eventDate) notesParts.push(`Event timing: ${dateRaw}`)
+  if (budgetMinRaw && !Number.isFinite(budgetMin)) notesParts.push(`Budget min: ${budgetMinRaw}`)
+  if (budgetMaxRaw && !Number.isFinite(budgetMax)) notesParts.push(`Budget max: ${budgetMaxRaw}`)
+
+  // Everything the column map didn't claim is preserved verbatim (follow-up notes, remarks,
+  // street address, occasion-specific questions, etc.) — nothing from the row is discarded.
+  for (const header of headers) {
+    if (consumedHeaders.has(header)) continue
+    const value = (row[header] || '').trim()
+    if (!value) continue
+    notesParts.push(`${header.trim() || '(unnamed column)'}: ${value}`)
+  }
+
+  return {
+    name: get('name') || undefined,
+    phone: get('phone') || undefined,
+    email: get('email') || undefined,
+    eventType: normalizeEventType(tabName),
+    eventDate,
+    guestCount,
+    budgetMin: Number.isFinite(budgetMin) ? budgetMin : undefined,
+    budgetMax: Number.isFinite(budgetMax) ? budgetMax : undefined,
+    notes: notesParts.length > 0 ? notesParts.join('\n') : undefined,
+  }
 }
