@@ -192,7 +192,7 @@ export function IntegrationsPageContent() {
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: '', provider: 'GOOGLE_SHEETS', source: 'DIRECT',
-    sheetId: '', tabName: 'Sheet1', headerRow: 1,
+    sheetId: '', tabName: 'Sheet1', headerRow: 1, allTabs: false,
   })
 
   const { data, isLoading } = useQuery({
@@ -265,7 +265,7 @@ export function IntegrationsPageContent() {
       setTestResult(null)
       setColumnMap({})
       setAvailableTabs([])
-      setForm({ name: '', provider: 'GOOGLE_SHEETS', source: 'DIRECT', sheetId: '', tabName: 'Sheet1', headerRow: 1 })
+      setForm({ name: '', provider: 'GOOGLE_SHEETS', source: 'DIRECT', sheetId: '', tabName: 'Sheet1', headerRow: 1, allTabs: false })
     },
     onError: () => toast.error('Failed to save integration'),
   })
@@ -425,7 +425,9 @@ export function IntegrationsPageContent() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Tab Name</label>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  {form.allTabs ? 'Preview Tab (for column detection)' : 'Tab Name'}
+                </label>
                 {availableTabs.length > 0 ? (
                   <select
                     value={form.tabName}
@@ -455,6 +457,19 @@ export function IntegrationsPageContent() {
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500"
                 />
               </div>
+              <label className="col-span-2 flex items-start gap-2 text-xs text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={form.allTabs}
+                  onChange={(e) => setForm({ ...form, allTabs: e.target.checked })}
+                  className="mt-0.5 accent-violet-600"
+                />
+                <span>
+                  Sync every tab in this sheet (e.g. each tab is a different campaign). All tabs must share the
+                  same columns — the mapping below is applied to all of them. Each imported lead will show which
+                  tab it came from.
+                </span>
+              </label>
             </div>
 
             {!testResult ? (
@@ -543,7 +558,8 @@ export function IntegrationsPageContent() {
                       </span>
                     </div>
                     <p className="text-xs text-zinc-500">
-                      {conn.provider.replaceAll('_', ' ')} · Source: {sourceLabels[conn.source] || conn.source} · Tab: {conn.tabName || 'Sheet1'}
+                      {conn.provider.replaceAll('_', ' ')} · Source: {sourceLabels[conn.source] || conn.source} ·{' '}
+                      {conn.tabName ? `Tab: ${conn.tabName}` : 'All tabs'}
                     </p>
                     {conn.lastSyncedAt && (
                       <p className="text-xs text-zinc-600 mt-1">

@@ -124,6 +124,10 @@ model Lead {
   budgetMin         Decimal?
   budgetMax         Decimal?
   source            LeadSource
+  // The sheet tab this lead was originally imported from (e.g. "Wedding", "Kitty Party").
+  // Set once at creation and never overwritten — a later phone-match sync from a different
+  // tab must not reassign it, since AI-calling/WhatsApp automation branches on this value.
+  sourceTab         String?
   stage             LeadStage            @default(NEW)
   leadScore         Int                  @default(50)
   notes             String?              @db.Text
@@ -473,6 +477,7 @@ model LeadExternalSource {
   connectionId String?
   provider     IntegrationProvider
   externalId   String
+  sourceTab    String?
   rowHash      String?
   rawPayload   Json?
   createdAt    DateTime             @default(now())

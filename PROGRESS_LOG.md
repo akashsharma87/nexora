@@ -548,6 +548,60 @@ until these are added from the Google Cloud OAuth client's credentials page.
 
 ---
 
+## Session 11 — July 8, 2026
+
+### Google Sheets — sync every tab in a sheet + exact per-lead tab attribution
+
+Context: the agency's team keeps one Google Sheet per platform (a Meta-leads sheet, a
+Google-leads sheet), with a separate tab per campaign inside each (e.g. "Wedding", "Kitty
+Party"). The existing integration only synced a single hardcoded tab per connection. Needed:
+sync the whole sheet in one go, and record — with certainty, not a guess — which tab each lead
+came from, since AI-calling/WhatsApp automation will branch on it next.
+
+**Sync all tabs (`app/api/integrations/[id]/sync/route.ts`):** refactored the per-row import
+logic into a shared `syncTab()` helper. `IntegrationConnection.tabName = null` is now the
+sentinel for "sync every tab in this sheet" — the route calls the existing `getAvailableTabs()`
+and loops all of them, importing each under the connection's single existing `source` (a sheet
+is still one platform, per the team's actual setup — no per-tab source picker needed). Existing
+single-tab connections are untouched, including keeping their original `externalId` format so
+re-syncing doesn't duplicate already-imported leads (multi-tab mode namespaces the id with the
+tab name instead, since one connection now spans several tabs).
+
+**Exact tab attribution — went through two designs, second one is correct:**
+- First pass stored `sourceTab` on `LeadExternalSource` and showed the *most recent* one on the
+  lead detail page. Wrong: a later sync of a *different* tab that happens to phone-match an
+  existing lead (dedupe-by-phone path) would silently overwrite which tab displayed, even though
+  the lead's true origin never changed.
+- Fixed: `sourceTab` now lives directly on `Lead` (nullable, new column), set exactly once —
+  inside `syncTab()`'s lead-creation branch only, never on the phone-dedupe branch. It is
+  immutable after creation, which is required since automation behavior will key off it later
+  (e.g. a "Wedding"-tab lead vs. a "Kitty Party"-tab lead should get different call scripts/
+  WhatsApp flows — not built yet, deferred to next session). `LeadExternalSource.sourceTab` is
+  still recorded per sync event too, kept as an audit trail (e.g. to spot the same phone number
+  showing up under two different campaign tabs).
+- Lead detail page (`app/leads/[id]/page.tsx`) shows the tab as a small chip next to the stage
+  badge. `GET /api/leads/[id]` needed no query changes — `sourceTab` comes back as a plain
+  scalar column, no join.
+
+**UI (`settings/integrations`):** added a "Sync every tab in this sheet" checkbox on the
+connect form. When checked, the Tab Name field becomes a "preview tab" used only to detect
+columns for the shared mapping (all tabs are assumed to share the same headers — true for this
+setup since it's one sheet template copied per campaign). New tabs added to an already-connected
+sheet later are picked up automatically on the next "Sync Now" — the tab list is re-fetched live
+every sync, nothing is cached.
+
+**Verified:** `npx tsc --noEmit` clean on all changed files (same pre-existing unrelated errors
+as prior sessions, untouched); `npx prisma db push` applied `Lead.sourceTab` +
+`LeadExternalSource.sourceTab` to the local dev DB; `npx next build` succeeds, all routes
+registered.
+
+**Deferred to next session (explicitly, by user request):** wiring `lead.sourceTab` into
+`scheduleLeadNurtureSequence`/`scheduleAiCall` and the WhatsApp automation so different campaign
+tabs actually trigger different call scripts / message flows. Needs a spec of what should differ
+per tab before building — flagged, not actioned.
+
+---
+
 ## Production gaps (Railway) — not yet fixed
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` missing from Railway env
 - `OPENAI_API_KEY` = placeholder — AI proposal generation non-functional

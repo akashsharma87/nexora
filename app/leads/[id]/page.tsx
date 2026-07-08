@@ -54,6 +54,7 @@ type LeadDetail = {
     createdAt: string
   }[]
   tasks: Task[]
+  sourceTab?: string | null
 }
 
 type OrgUser = {
@@ -308,6 +309,11 @@ export default function LeadDetailPage() {
                 <div className="flex items-center gap-3">
                   <h1 className="text-4xl font-bold text-foreground">{lead.name}</h1>
                   <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">{leadStageLabels[lead.stage]}</span>
+                  {lead.sourceTab && (
+                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground" title="Sheet tab this lead was imported from">
+                      {lead.sourceTab}
+                    </span>
+                  )}
                 </div>
                 <p className="mt-1 text-muted-foreground">
                   {eventTypeLabels[lead.eventType]} from {sourceLabels[lead.source]}

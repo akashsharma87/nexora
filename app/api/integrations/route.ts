@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   if (error) return error
 
   const body = await request.json()
-  const { name, provider, source, sheetId, tabName, headerRow, columnMap } = body
+  const { name, provider, source, sheetId, tabName, allTabs, headerRow, columnMap } = body
 
   if (!name || !provider || !source || !columnMap) {
     return NextResponse.json({ error: 'name, provider, source, and columnMap are required' }, { status: 400 })
@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
       name,
       source,
       sheetId: cleanSheetId,
-      tabName: tabName || 'Sheet1',
+      // null tabName is the "sync every tab in this sheet" sentinel — see [id]/sync/route.ts
+      tabName: allTabs ? null : tabName || 'Sheet1',
       headerRow: headerRow || 1,
       columnMap,
       status: 'ACTIVE',
