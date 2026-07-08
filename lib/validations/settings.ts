@@ -15,6 +15,7 @@ export const propertyUpdateSchema = z.object({
   googleAdsCustomerId: z.preprocess(emptyToUndefined, z.string().optional()),
   googleAdsAccountName: z.preprocess(emptyToUndefined, z.string().optional()),
   autoAiCallingEnabled: z.boolean().optional(),
+  autoWhatsappNurtureEnabled: z.boolean().optional(),
 })
 
 export const projectCreateSchema = z.object({

@@ -709,6 +709,49 @@ connection to test it** — it has ~1,126 real leads, and a live sync fires `sch
 `scheduleLeadNurtureSequence` per new lead (real AI phone calls + WhatsApp messages to real
 people). That first real sync is the user's call to trigger, not something to smoke-test with.
 
+### Same day — WhatsApp nurture had no on/off toggle at all (the real bulk-blast risk)
+
+After the sync hotfix, the user asked for the AI-calling toggle's "twin" for WhatsApp before
+actually running a sync on the 1,126-lead Citadel sheet — correctly anticipating that the same
+class of bug could exist on the messaging side. Checked before building anything (an Explore
+agent read the schema, `lib/automation.ts`, and every call site):
+
+- **AI calling already had this solved.** `Property.autoAiCallingEnabled` (`prisma/schema.prisma`,
+  default `false`), a toggle on `/ai-calls` (`app/ai-calls/page.tsx`), and a gate inside
+  `scheduleAiCall()` (`lib/automation.ts`) that returns early unless the property opted in.
+  Confirmed via a direct prod query: **every property currently has it `false`** — so the sync
+  hotfix alone was never going to trigger real calls.
+- **WhatsApp nurture had nothing.** `scheduleLeadNurtureSequence()` unconditionally created 5
+  `ScheduledMessage` rows per lead (`lib/automation.ts`) with no property check — every call site
+  (manual lead create, CSV import, sheet sync) would have fired it for every single lead. This
+  was the actual live risk on the Citadel sync: 1,126 leads → 1,126 real WhatsApp nurture
+  sequences the instant Sync Now was clicked.
+
+**Fix, mirroring the existing calling pattern exactly:**
+- `Property.autoWhatsappNurtureEnabled Boolean @default(false)` (schema + `propertyUpdateSchema`).
+- `scheduleLeadNurtureSequence()` now takes `propertyId` (added to all 3 call sites —
+  `app/api/leads/route.ts`, `app/api/leads/import/route.ts`, `lib/sheet-sync.ts`) and returns
+  early unless the flag is on — same shape as `scheduleAiCall`'s gate.
+- Toggle added to `/whatsapp` (next to "Create Template"), same on/off pill style as the
+  `/ai-calls` toggle, using this page's existing React Query conventions rather than copying the
+  other page's raw-fetch style verbatim.
+
+**Additional safety layer beyond the plain toggle (the "filter" the user asked for), applied to
+both auto-triggers:** a shared `AUTOMATION_HOURLY_CAP = 20` in `lib/automation.ts` — even with a
+toggle ON, no more than 20 leads per property per rolling hour get auto-enrolled into calling or
+nurturing. Counted directly from real rows (`AiCall` count / `ScheduledMessage` count filtered to
+`INITIAL_RESPONSE`), not an in-memory counter, so it holds across concurrent requests and process
+restarts. This means turning a toggle on to catch up on day-to-day leads can never accidentally
+mass-trigger everything if someone later bulk-imports a large historical sheet — leads beyond the
+cap are still created normally in the CRM, just without auto-automation; the existing
+purpose-built `/api/ai-calls/bulk-trigger` (capped at 50, staggered 90s apart) remains the correct
+tool for deliberately catching up a backlog.
+
+**Verified:** confirmed via direct prod DB query that all 6 properties have
+`autoAiCallingEnabled: false` today. `npx tsc --noEmit` and `npx next build` clean (same
+pre-existing unrelated errors, untouched files). `npx prisma db push` applied
+`autoWhatsappNurtureEnabled` to both local dev and production Postgres.
+
 ---
 
 ## Production gaps (Railway) — not yet fixed

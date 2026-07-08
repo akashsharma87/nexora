@@ -3,8 +3,35 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { WATI_TEMPLATES } from '@/lib/whatsapp'
 
+// Safety ceiling shared by both auto-triggers below: a bulk sheet sync or CSV import must never
+// fire more than this many real calls/WhatsApp sequences per property per rolling hour, even
+// with its toggle on — a sync importing hundreds of historical leads should not blast all of
+// them at once. Leads beyond the cap are still created as normal CRM records; staff can catch
+// them up manually afterward (AI calling already has a purpose-built tool for this — see
+// app/api/ai-calls/bulk-trigger/route.ts, itself capped + staggered).
+const AUTOMATION_HOURLY_CAP = 20
+
+async function hourlyAiCallCount(propertyId: string): Promise<number> {
+  return prisma.aiCall.count({
+    where: { propertyId, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+  })
+}
+
+async function hourlyNurtureStartCount(propertyId: string): Promise<number> {
+  // One INITIAL_RESPONSE row is created per lead enrolled — counting just that template type
+  // (instead of all 5 staggered rows per lead) gives "leads newly nurtured in the last hour".
+  return prisma.scheduledMessage.count({
+    where: {
+      lead: { propertyId },
+      templateType: 'INITIAL_RESPONSE',
+      createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+    },
+  })
+}
+
 export async function scheduleLeadNurtureSequence(params: {
   leadId: string
+  propertyId: string
   phone: string
   leadName: string
   eventType: string
@@ -12,7 +39,18 @@ export async function scheduleLeadNurtureSequence(params: {
   propertyName: string
   managerName: string
 }) {
-  const { leadId, phone, leadName, eventType, eventDate, propertyName, managerName } = params
+  const { leadId, propertyId, phone, leadName, eventType, eventDate, propertyName, managerName } = params
+
+  // Auto-scheduling on lead creation (manual add, CSV import, Google Sheets sync) is off by
+  // default — a property must explicitly opt in via the toggle on /whatsapp
+  // (Property.autoWhatsappNurtureEnabled). This does NOT gate a manually-sent WhatsApp message.
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { autoWhatsappNurtureEnabled: true },
+  })
+  if (!property?.autoWhatsappNurtureEnabled) return
+  if ((await hourlyNurtureStartCount(propertyId)) >= AUTOMATION_HOURLY_CAP) return
+
   const now = new Date()
 
   // All nurture templates below (except INITIAL_RESPONSE, handled separately) are
@@ -169,6 +207,7 @@ export async function scheduleAiCall(params: {
     select: { autoAiCallingEnabled: true },
   })
   if (!property?.autoAiCallingEnabled) return
+  if ((await hourlyAiCallCount(propertyId)) >= AUTOMATION_HOURLY_CAP) return
 
   const existing = await prisma.aiCall.findFirst({
     where: { leadId, status: { in: ['PENDING', 'DIALING', 'IN_PROGRESS'] } },

@@ -137,6 +137,7 @@ async function syncTab(
 
       await scheduleLeadNurtureSequence({
         leadId: lead.id,
+        propertyId: lead.propertyId,
         phone: lead.phone,
         leadName: lead.name,
         eventType: eventTypeLabels[lead.eventType] || lead.eventType,

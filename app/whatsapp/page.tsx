@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { FormEvent, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { CheckCircle, Clock, Loader2, MessageCircle, Play, Plus, Send } from 'lucide-react'
+import { CheckCircle, Clock, Loader2, MessageCircle, Play, Plus, Send, Zap, ZapOff } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { eventTypeLabels, formatDate, leadStageLabels } from '@/lib/format'
@@ -95,6 +95,32 @@ export default function WhatsAppPage() {
     queryFn: () => apiGet<{ messages: ScheduledMessage[]; pendingCount: number }>('/api/whatsapp/scheduled'),
     enabled: activeTab === 'automation',
     refetchInterval: activeTab === 'automation' ? 30000 : false,
+  })
+
+  const propertyQuery = useQuery({
+    queryKey: ['settings-property'],
+    queryFn: () => apiGet<{ property: { autoWhatsappNurtureEnabled: boolean } }>('/api/settings/property'),
+  })
+
+  const toggleAutoNurture = useMutation({
+    mutationFn: async (next: boolean) => {
+      const response = await fetch('/api/settings/property', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoWhatsappNurtureEnabled: next }),
+      })
+      if (!response.ok) throw new Error('Failed to update auto-nurture setting')
+      return next
+    },
+    onSuccess: (next) => {
+      queryClient.invalidateQueries({ queryKey: ['settings-property'] })
+      toast.success(
+        next
+          ? 'Auto WhatsApp nurturing turned ON — new leads will get the nurture sequence automatically.'
+          : 'Auto WhatsApp nurturing turned OFF — new leads will not be nurtured automatically.'
+      )
+    },
+    onError: () => toast.error('Failed to update auto-nurture setting'),
   })
 
   const [templatesQuery, flowsQuery, broadcastsQuery] = useQueries({
@@ -196,10 +222,25 @@ export default function WhatsAppPage() {
             <h1 className="text-4xl font-bold text-foreground">WhatsApp Automation</h1>
             <p className="text-muted-foreground mt-1">Manage templates, nurture flows, and scheduled broadcasts.</p>
           </div>
-          <button onClick={() => setShowTemplateForm((value) => !value)} className="w-fit px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm font-medium flex items-center gap-2">
-            <Plus size={18} />
-            Create Template
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => toggleAutoNurture.mutate(!propertyQuery.data?.property?.autoWhatsappNurtureEnabled)}
+              disabled={!propertyQuery.data || toggleAutoNurture.isPending}
+              title="When on, new leads automatically get the WhatsApp nurture sequence a few minutes after creation. Off by default so bulk imports/syncs never mass-message leads."
+              className={`w-fit px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition-colors disabled:opacity-50 ${
+                propertyQuery.data?.property?.autoWhatsappNurtureEnabled
+                  ? 'bg-green-500/10 border-green-500/30 text-green-600'
+                  : 'bg-card border-border text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              {propertyQuery.data?.property?.autoWhatsappNurtureEnabled ? <Zap size={16} /> : <ZapOff size={16} />}
+              Auto Nurture: {propertyQuery.data?.property?.autoWhatsappNurtureEnabled ? 'ON' : 'OFF'}
+            </button>
+            <button onClick={() => setShowTemplateForm((value) => !value)} className="w-fit px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm font-medium flex items-center gap-2">
+              <Plus size={18} />
+              Create Template
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
