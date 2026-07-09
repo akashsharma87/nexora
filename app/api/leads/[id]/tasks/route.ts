@@ -30,7 +30,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const tasks = await prisma.task.findMany({
     where: { leadId: id },
     orderBy: { dueDate: 'asc' },
-    include: { assignedTo: { select: { id: true, name: true } } },
+    include: { assignedTo: { select: { id: true, name: true, staffTag: true } } },
   })
 
   return NextResponse.json({ tasks })

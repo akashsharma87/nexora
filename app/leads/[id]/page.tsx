@@ -18,7 +18,7 @@ type Task = {
   priority: string
   completed: boolean
   completedAt?: string | null
-  assignedTo?: { id: string; name: string } | null
+  assignedTo?: { id: string; name: string; staffTag?: string | null } | null
 }
 
 type LeadDetail = {

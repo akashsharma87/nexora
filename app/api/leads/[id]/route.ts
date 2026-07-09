@@ -34,6 +34,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       },
       tasks: {
         orderBy: { dueDate: 'asc' },
+        include: { assignedTo: { select: { id: true, name: true, staffTag: true } } },
       },
     },
   })
