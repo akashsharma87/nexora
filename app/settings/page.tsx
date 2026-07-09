@@ -163,6 +163,22 @@ export default function SettingsPage() {
     onError: () => toast.error('Password could not be regenerated'),
   })
 
+  // Projects created before the mogul-seat feature shipped don't have them yet
+  // (auto-provisioning only fires for brand-new projects) — this backfills the
+  // active project via the existing idempotent seed-defaults endpoint.
+  const provisionMoguls = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/setup/seed-defaults', { method: 'POST' })
+      if (!response.ok) throw new Error('Failed to set up team seats')
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('Internet Moguls team seats created')
+      queryClient.invalidateQueries({ queryKey: ['settings-mogul-users'] })
+    },
+    onError: () => toast.error('Could not set up team seats'),
+  })
+
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set())
   function toggleRevealed(id: string) {
     setRevealedIds((prev) => {
@@ -453,7 +469,7 @@ export default function SettingsPage() {
           </section>
         </div>
 
-        {canAddProject && mogulUsers.length > 0 && (
+        {canAddProject && !mogulUsersQuery.isLoading && (
           <section className="rounded-lg border border-border bg-card p-6">
             <div className="mb-5 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10 text-accent">
@@ -466,6 +482,22 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
+
+            {mogulUsers.length === 0 && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  This project was created before team seats existed — set them up to start getting Priya's follow-up tasks assigned.
+                </p>
+                <button
+                  onClick={() => provisionMoguls.mutate()}
+                  disabled={provisionMoguls.isPending}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60 flex-shrink-0"
+                >
+                  {provisionMoguls.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Set Up Now
+                </button>
+              </div>
+            )}
 
             <div className="space-y-3">
               {mogulUsers.map((mogul) => {
