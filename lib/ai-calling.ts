@@ -42,7 +42,10 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
     where: { id: aiCallId },
     include: {
       lead: {
-        select: { name: true, phone: true, eventType: true, eventDate: true, sourceTab: true },
+        select: {
+          name: true, phone: true, eventType: true, eventDate: true, sourceTab: true,
+          guestCount: true, budgetMin: true, budgetMax: true,
+        },
       },
     },
   })
@@ -80,6 +83,17 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
   // personalize the opening line instead of always saying "banquet".
   if (aiCall.lead.sourceTab) {
     params.push(['sourceTab', aiCall.lead.sourceTab])
+  }
+  // Details already captured on the enquiry form — Priya must confirm these, not ask cold,
+  // or she sounds like she never read the lead's own submission.
+  if (aiCall.lead.guestCount) {
+    params.push(['guestCount', String(aiCall.lead.guestCount)])
+  }
+  if (aiCall.lead.budgetMin) {
+    params.push(['budgetMin', String(aiCall.lead.budgetMin)])
+  }
+  if (aiCall.lead.budgetMax) {
+    params.push(['budgetMax', String(aiCall.lead.budgetMax)])
   }
   const paramXml = params
     .map(([k, v]) => `<Parameter name="${k}" value="${xmlEsc(v)}" />`)

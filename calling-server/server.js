@@ -49,6 +49,9 @@ wss.on('connection', (twilioWs, req) => {
   let propertyName = url.searchParams.get('propertyName') || 'our venue'
   let eventDate = url.searchParams.get('eventDate') || null
   let sourceTab = url.searchParams.get('sourceTab') || null
+  let guestCount = url.searchParams.get('guestCount') ? Number(url.searchParams.get('guestCount')) : null
+  let budgetMin = url.searchParams.get('budgetMin') ? Number(url.searchParams.get('budgetMin')) : null
+  let budgetMax = url.searchParams.get('budgetMax') ? Number(url.searchParams.get('budgetMax')) : null
 
   console.log(`[call:${callId}] New Twilio connection — lead: ${leadName}`)
 
@@ -90,7 +93,7 @@ wss.on('connection', (twilioWs, req) => {
       session: {
         type: 'realtime',
         output_modalities: ['audio'],
-        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab }),
+        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax }),
         tools: [outcomeReportTool],
         tool_choice: 'auto',
         audio: {
@@ -300,6 +303,9 @@ wss.on('connection', (twilioWs, req) => {
       if (cp.propertyName) propertyName = cp.propertyName
       if (cp.eventDate) eventDate = cp.eventDate
       if (cp.sourceTab) sourceTab = cp.sourceTab
+      if (cp.guestCount) guestCount = Number(cp.guestCount)
+      if (cp.budgetMin) budgetMin = Number(cp.budgetMin)
+      if (cp.budgetMax) budgetMax = Number(cp.budgetMax)
       started = true
 
       console.log(`[call:${callId}] ✅ Twilio stream started — SID: ${streamSid}, lead: ${leadName}, buffered chunks: ${audioBuffer.length}`)
@@ -389,9 +395,21 @@ function isRoomStayInquiry(tabName) {
   return l.includes('suite') || l.includes('room') || l.includes('stay') || l.includes('accommodation')
 }
 
-function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab }) {
+// Lakhs, matching the "Budget Min/Max (L)" fields in the CRM's lead form.
+function formatBudgetLabel(min, max) {
+  const hasMin = typeof min === 'number' && min > 0
+  const hasMax = typeof max === 'number' && max > 0
+  if (hasMin && hasMax) return `₹${min}–${max} lakhs`
+  if (hasMax) return `up to ₹${max} lakhs`
+  if (hasMin) return `₹${min}+ lakhs`
+  return null
+}
+
+function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
   const roomStay = isRoomStayInquiry(sourceTab)
+  const hasGuestCount = typeof guestCount === 'number' && guestCount > 0
+  const budgetLabel = formatBudgetLabel(budgetMin, budgetMax)
 
   // Say back what they actually asked about — "Kitty Party" or "Wedding" (the real tab name)
   // reads far more naturally to the lead than the generic word "banquet" for every call.
@@ -405,16 +423,38 @@ function buildInstructions({ leadName, eventType, propertyName, eventDate, sourc
     ? `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} mein stay ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
     : `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
 
+  // What's already on file — Priya must CONFIRM these in passing, never ask cold, or she
+  // sounds like she never read the lead's own submission (their #1 complaint about IVR-ish bots).
+  const knownParts = []
+  if (hasGuestCount) knownParts.push(`Guest count: around ${guestCount}${roomStay ? ' staying' : ' guests'}`)
+  if (!roomStay && budgetLabel) knownParts.push(`Budget: ${budgetLabel}`)
+  if (eventDate) knownParts.push(`${roomStay ? 'Check-in date' : 'Event date'}: ${eventDate}`)
+  const knownDetailsSection = knownParts.length > 0
+    ? knownParts.map((p) => `- ${p}`).join('\n')
+    : '- Nothing beyond the occasion itself — gather everything in WHAT TO LEARN fresh.'
+
+  // Only ask for what ISN'T already known — re-asking something they already told the form
+  // is the fastest way to sound like she never looked at their enquiry.
+  const decisionMakerGuidance = eventType === 'CORPORATE_EVENTS'
+    ? 'Get a natural sense of whether they can finalise this themselves or need internal sign-off from someone else — ask casually, not as a checklist item.'
+    : 'If it fits naturally for a personal occasion like this (wedding, kitty party, birthday, anniversary), get a warm sense of whether they are deciding solo or planning it together with family — phrase it collaboratively and casually, e.g. "family ke saath discuss karke decide karengi, ya aapka hi call hai?". NEVER phrase it like you are asking their permission or checking if they are allowed to decide — that sounds patronising. Skip this entirely for smaller/casual bookings (like a brunch reservation) where it would sound odd.'
+
   const whatToLearn = roomStay
-    ? `- Their check-in and check-out dates (exact if they have them, or roughly which dates/month if not fixed yet).
-- How many guests will be staying.
-- The purpose of the stay (leisure trip, business, anniversary or another special occasion) — ask casually, not like a form.
-- Any room preference or special request they mention.
-- Whether they're ready to book once they know rates and availability, or still comparing options.`
-    : `- The occasion, and roughly when they're planning it.
-- Roughly how many guests.
-- Budget range they have in mind (ask gently, casually).
-- Whether they decide, or discuss with family.`
+    ? [
+        eventDate
+          ? 'We already have their check-in date — confirm it naturally, then ask their check-out date / how many nights.'
+          : 'Their check-in and check-out dates (exact if they have them, or roughly which dates/month if not fixed yet).',
+        !hasGuestCount ? 'How many guests will be staying.' : null,
+        'The purpose of the stay (leisure trip, business, anniversary or another special occasion) — ask casually, not like a form.',
+        'Any room preference or special request they mention.',
+        "Whether they're ready to book once they know rates and availability, or still comparing options.",
+      ].filter(Boolean).join('\n- ').replace(/^/, '- ')
+    : [
+        !eventDate ? 'Roughly when they\'re planning it.' : null,
+        !hasGuestCount ? 'Roughly how many guests.' : null,
+        !budgetLabel ? 'Budget range they have in mind (ask gently, casually).' : null,
+        decisionMakerGuidance,
+      ].filter(Boolean).join('\n- ').replace(/^/, '- ')
 
   const closingLine = roomStay
     ? "you'll send room availability and rates on WhatsApp right away, and our reservations team will call within the hour to confirm."
@@ -454,12 +494,17 @@ Have a genuine, friendly phone chat to understand ${roomStay ? 'their stay plans
 - ${leadName} is their first name only — always use exactly this, never guess at a surname or a different form of it.
 - NEVER attach "ji" directly after their name (e.g. never say "${leadName} ji"). Say the name plainly on its own — "${leadName}, ..." — or drop the name and use "ji" elsewhere in the sentence instead. "ji" is fine as a general polite word elsewhere, just never stuck right after their name.
 
+${knownParts.length > 0
+  ? `# WHAT YOU ALREADY KNOW (from their enquiry form — CONFIRM these naturally in passing, e.g. "maine dekha aapne ${hasGuestCount ? `around ${guestCount} guests` : 'kuch details'} mention kiya tha, sahi hai na?" — do NOT ask about these as if you have no idea, that makes it obvious you never read their submission)`
+  : '# WHAT YOU ALREADY KNOW (from their enquiry form)'}
+${knownDetailsSection}
+
 # OPENING
 Open warmly and naturally, in your own words — e.g. "${openingLine}" (Don't read it verbatim — say it fresh.)
 
 Once they confirm they're free to talk (any clear "yes"/"haan"/"bolo" type response), move straight into warm curiosity about ${roomStay ? 'their stay' : 'their event'} — do NOT treat their "yes" as a reason to wrap up, offer a callback, or mention a senior colleague. Those closing moves are ONLY for when they say they're busy, not interested, or you've finished gathering what you need in WHAT TO LEARN below.
 
-# WHAT TO LEARN (through natural chat, NOT a checklist — react to each answer before the next)
+# WHAT TO LEARN (through natural chat, NOT a checklist — react to each answer before the next; skip anything already covered in WHAT YOU ALREADY KNOW above)
 ${whatToLearn}
 Weave these in like a friendly, curious chat — never fire them one after another like a form.
 

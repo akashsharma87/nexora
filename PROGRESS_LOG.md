@@ -856,6 +856,47 @@ branch without needing the auto-call toggle on or a real sheet connection.
 
 **Verified:** `npx tsc --noEmit` / `npx next build` clean.
 
+### Same day — Priya ignored guest count/budget/date already on the lead, and asked a tone-deaf question
+
+User caught two real issues on a live test call: (1) Priya asked a blunt, patronising-sounding
+question in Hindi — roughly "will you decide yourself or check with your family and let us
+know" — which came from a one-line terse instruction ("Whether they decide, or discuss with
+family.") that the model turned into an equally blunt literal question; and (2) she asked "how
+many guests" / budget cold even when the lead's own form submission already had that data —
+because `guestCount`/`budgetMin`/`budgetMax` were never passed to the calling server at all
+(only `leadName`, `eventType`, `propertyName`, `eventDate`, `sourceTab` were).
+
+**Fix:**
+- `lib/ai-calling.ts`: added `guestCount`, `budgetMin`, `budgetMax` to the lead select and as
+  Twilio `<Parameter>` values (only when non-null/non-zero).
+- `calling-server/server.js`: reads the three new params in the `start` handler; new
+  `formatBudgetLabel(min, max)` (lakhs, matching the CRM's "Budget Min/Max (L)" fields).
+  `buildInstructions()` now builds a **"WHAT YOU ALREADY KNOW"** section instructing Priya to
+  *confirm* known details in passing rather than ask cold, and the **WHAT TO LEARN** bullets are
+  built dynamically — array-filtered to only include what's actually missing, instead of a fixed
+  list asked regardless of what's already known.
+- **Decision-maker question fixed at the root, not patched with an example line**: replaced the
+  terse one-liner with explicit phrasing guidance, branched by `eventType` — for `CORPORATE_EVENTS`
+  ask about internal sign-off instead of family; for personal occasions (wedding, kitty party,
+  birthday, anniversary) phrase it collaboratively ("family ke saath discuss karke decide
+  karengi, ya aapka hi call hai?") and explicitly forbidden from sounding like asking permission;
+  told to skip the question entirely for casual/small bookings where it doesn't fit.
+
+**Verified — dry-ran `buildInstructions()` in isolation** (extracted the pure functions from
+`server.js` via string-slice + `eval`, not the whole server, since the file starts a real
+WebSocket/HTTP server and throws without live env vars) across 5 scenarios: nothing known,
+guests+date known, corporate with budget known, room-stay with dates known, room-stay with
+nothing known. **Caught a real bug in the first pass this way** — the "already know" section's
+header always included a hardcoded example sentence with the guest count value even when nothing
+was actually known, producing a broken blank interpolation ("...around  guests..."); fixed to
+only show the example when something is genuinely known. Confirmed no bullet-formatting
+artifacts (stray dashes, empty bullets) across any scenario after the fix. `node --check`,
+`tsc --noEmit`, `next build` all clean.
+
+**Not verified with a real phone call** — same caveat as the earlier calling-script change; the
+dry run confirms the generated *text* is well-formed and logically correct, not how it actually
+sounds spoken aloud by the model on a live call.
+
 ---
 
 ## Production gaps (Railway) — not yet fixed
