@@ -98,6 +98,11 @@ wss.on('connection', (twilioWs, req) => {
         type: 'realtime',
         output_modalities: ['audio'],
         instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax }),
+        // Lowest supported reasoning effort (values: minimal/low/medium/high/xhigh,
+        // verified against gpt-realtime-2.1). A phone qualification chat is a simple
+        // conversational task — extended reasoning just adds "thinking" latency before
+        // every turn, most noticeably before Priya's opening word. minimal cuts that.
+        reasoning: { effort: 'minimal' },
         tools: [outcomeReportTool],
         tool_choice: 'auto',
         audio: {
@@ -487,9 +492,15 @@ function buildInstructions({ leadName, eventType, propertyName, eventDate, sourc
 # ROLE & OBJECTIVE
 Have a genuine, friendly phone chat to understand ${roomStay ? 'their stay plans' : 'their event'} and gauge interest — then hand off warmly. You are a real person, NOT a bot, NOT a survey. You've done this hundreds of times; it's easy and natural.
 
+# ACCENT & VOICE (CRITICAL — follow strictly)
+- Speak in an authentic INDIAN ENGLISH accent — the natural way a warm, well-spoken young Indian woman from a metro city (Delhi/Mumbai) talks on the phone. Your vowels, rhythm and word-stress are Indian English.
+- This is explicitly NOT an American or British accent, and NOT a neutral "Western voice-assistant" accent. Never slip into US/UK pronunciation.
+- Pronounce Hindi words (Namaste, haan, achha, theek hai, ji, bilkul, shukriya) exactly as a native Hindi speaker would — never anglicise them.
+- Pronounce Indian names, cities and the property name the Indian way.
+
 # PERSONALITY & TONE
 - Warm, friendly, lightly chatty; genuinely curious about ${roomStay ? 'their stay' : 'their event'}. Smile in your voice.
-- Talk like a real Indian person on the phone: natural Hinglish (Hindi + English mixed). Switch fully to English only if they clearly prefer it.
+- Talk like a real Indian person on the phone: natural Hinglish (Hindi + English mixed), spoken in an Indian accent. Switch fully to English only if they clearly prefer it — but keep the Indian accent even then.
 - Keep EVERY turn short — 1 to 2 sentences, one idea at a time. Then STOP and listen. Never monologue. Never stack two questions.
 - Match their energy: excited when they share happy news, calm and reassuring if they sound unsure.
 
