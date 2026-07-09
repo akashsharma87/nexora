@@ -72,7 +72,7 @@ async function handleOutcomeUpdate(
     where: { id: aiCallId },
     include: {
       lead: {
-        select: { id: true, name: true, phone: true, eventType: true, eventDate: true, stage: true, propertyId: true, sourceTab: true },
+        select: { id: true, name: true, phone: true, eventType: true, eventDate: true, stage: true, propertyId: true, sourceTab: true, assignedToId: true },
       },
     },
   })
@@ -106,6 +106,16 @@ async function handleOutcomeUpdate(
   // across mogul-1/2/3, whoever has fewest open tasks), not straight to an
   // OWNER/MANAGER — systemUser remains the actor for activity-log entries below.
   const taskAssigneeId = (await pickMogulAssignee(aiCall.propertyId)) ?? systemUser.id
+
+  // The lead's own "Assigned To" is a separate field from the task's assignee — surfacing the
+  // task assignee there too so the lead card doesn't read "Unassigned" while a mogul is actively
+  // working it. Only claims it if nobody owns the lead yet — never overrides a human's assignment.
+  if (!aiCall.lead.assignedToId && ['QUALIFIED', 'CALLBACK', 'NOT_QUALIFIED'].includes(body.outcome)) {
+    await prisma.lead.update({
+      where: { id: aiCall.leadId },
+      data: { assignedToId: taskAssigneeId },
+    })
+  }
 
   const outcomeLabel: Record<string, string> = {
     QUALIFIED: 'Qualified — interested, details gathered',
