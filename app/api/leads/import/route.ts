@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
             eventDate: lead.eventDate ? lead.eventDate.toISOString().split('T')[0] : null,
             propertyName: property?.name || 'our venue',
             managerName: manager?.name || 'our team',
+            sourceTab: lead.sourceTab,
           })
           await scheduleAiCall({ leadId: lead.id, propertyId: lead.propertyId })
         } catch (err) {

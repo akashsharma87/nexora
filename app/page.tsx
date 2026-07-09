@@ -1,11 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, BarChart3, Briefcase, Calendar, CheckSquare, ClipboardList, Loader2, TrendingUp, Users } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, BarChart3, Briefcase, Bell, Calendar, CheckSquare, ClipboardList, Loader2, TrendingUp, Users } from 'lucide-react'
 
 import { AchievementBadge } from '@/components/achievement-badge'
 import { DashboardLayout } from '@/components/dashboard-layout'
+import { FlipKpiCard } from '@/components/flip-kpi-card'
 import { KPICard } from '@/components/kpi-card'
 import { SmartInsights } from '@/components/smart-insights'
 import { TrendChart } from '@/components/trend-chart'
@@ -54,12 +55,14 @@ type MyTask = {
   title: string
   priority: string
   dueDate?: string | null
+  source?: string
   lead?: { id: string; name: string; stage: string } | null
 }
 
 type MyTasksData = {
   tasks: MyTask[]
   overdueCount: number
+  newCount: number
 }
 
 async function fetchDashboard(): Promise<DashboardData> {
@@ -87,6 +90,8 @@ async function fetchSourceTabs(): Promise<{ tabs: { tab: string; count: number }
 }
 
 export default function Dashboard() {
+  const queryClient = useQueryClient()
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
     queryFn: fetchDashboard,
@@ -102,6 +107,15 @@ export default function Dashboard() {
     queryKey: ['my-tasks'],
     queryFn: fetchMyTasks,
     refetchInterval: 30000,
+  })
+
+  const markTasksSeen = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/tasks/mark-seen', { method: 'POST' })
+      if (!response.ok) throw new Error('Failed to mark tasks seen')
+      return response.json()
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-tasks'] }),
   })
 
   const { data: sourceTabsData } = useQuery({
@@ -184,7 +198,16 @@ export default function Dashboard() {
             <SmartInsights insights={insights} />
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard icon={Users} label="New Leads" value={data.metrics.newLeads} change="+ live" trend="up" subtext="Last 30 days" color="primary" clickable />
+              <FlipKpiCard
+                icon={Users}
+                label="New Leads"
+                value={data.metrics.newLeads}
+                change="+ live"
+                trend="up"
+                subtext="Last 30 days"
+                color="primary"
+                distribution={sourceTabs}
+              />
               <KPICard icon={TrendingUp} label="Proposals Sent" value={data.metrics.proposalsSent} change="+ live" trend="up" subtext="Tracked proposals" color="accent" clickable />
               <KPICard icon={Briefcase} label="Bookings Confirmed" value={data.metrics.bookingsConfirmed} change="+ live" trend="up" subtext="Booked leads" color="secondary" clickable />
               <KPICard
@@ -263,6 +286,25 @@ export default function Dashboard() {
               </div>
             )}
 
+            {myTasksData && myTasksData.newCount > 0 && (
+              <div className="flex items-center justify-between rounded-xl border border-accent/30 bg-accent/10 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-foreground">
+                  <Bell className="h-4 w-4 text-accent flex-shrink-0" />
+                  <span>
+                    Priya assigned you <span className="font-semibold">{myTasksData.newCount}</span> new task
+                    {myTasksData.newCount === 1 ? '' : 's'} after AI call{myTasksData.newCount === 1 ? '' : 's'} — see below.
+                  </span>
+                </div>
+                <button
+                  onClick={() => markTasksSeen.mutate()}
+                  disabled={markTasksSeen.isPending}
+                  className="rounded-lg border border-accent/30 px-3 py-1 text-xs font-medium text-accent hover:bg-accent/10 disabled:opacity-60 flex-shrink-0"
+                >
+                  Got it
+                </button>
+              </div>
+            )}
+
             {myTasksData && myTasksData.tasks.length > 0 && (
               <div className="rounded-xl border border-border bg-card p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -301,9 +343,16 @@ export default function Dashboard() {
                             {isOverdue ? 'Overdue · ' : ''}{formatDate(task.dueDate)}
                           </p>
                         )}
-                        <span className="mt-2 inline-block rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                          {task.priority}
-                        </span>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                            {task.priority}
+                          </span>
+                          {task.source === 'AI_CALL' && (
+                            <span className="inline-block rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+                              Assigned by Priya
+                            </span>
+                          )}
+                        </div>
                       </Link>
                     )
                   })}

@@ -903,6 +903,49 @@ sounds spoken aloud by the model on a live call.
 
 ---
 
+## Session 14 — July 9, 2026
+
+### AI caller — latency, decision-maker question, model upgrade
+
+- **First-word delay:** `response.create` was gated on waiting for OpenAI's `session.updated`
+  ack before sending — pipelined it right behind `session.update` instead (same ordered socket,
+  no need to wait), cutting a full round-trip of dead air (`calling-server/server.js`).
+- **Decision-maker question still sounded presumptuous** even after Session 13's fix (the example
+  line itself still asked family-vs-self). Rewritten: Priya now assumes the caller IS the
+  decision-maker (they submitted the enquiry) and never asks who's "allowed" to decide, for both
+  personal and corporate calls.
+- **Model swapped `gpt-realtime` → `gpt-realtime-2.1`** (OpenAI GA release, 2026-07-06; ~25% lower
+  p95 latency, better silence/interruption handling). Checked GPT-Live (OpenAI's new full-duplex
+  consumer voice, also released this week) — **API access not public yet**, ChatGPT-app only, so
+  not integrable. Verified `gpt-realtime-2.1` is genuinely live (not just announced) by opening a
+  real Realtime WebSocket session against it with our production session shape — accepted.
+- Dry-run verified (`buildInstructions()` extracted and run standalone); **not yet confirmed on a
+  real call**.
+
+### Internet Moguls team seats + AI-assigned tasks (new feature)
+
+Added a 3-seat-per-project staff system so Priya's post-call conclusions get routed to a person,
+not just logged. Schema: `User.staffTag` (MOGUL_1/2/3, survives the person renaming themselves),
+`User.tempCredential` (AES-256-GCM encrypted password so OWNER/MANAGER can re-reveal credentials
+from Settings — bcrypt hash alone can't be reversed), `Task.source` (MANUAL/AI_CALL), `Task.seenAt`.
+
+- `lib/seeds/property-defaults.ts` auto-creates mogul-1/2/3 for every new project (register +
+  `/api/projects`), and retroactively for existing projects via the already-idempotent
+  `POST /api/setup/seed-defaults`.
+- New `lib/mogul-assignment.ts` (`pickMogulAssignee`) round-robins by fewest open tasks.
+- `app/api/ai-calls/[id]/route.ts` now assigns QUALIFIED/CALLBACK tasks (and a new NOT_QUALIFIED
+  close-out task) to a mogul seat instead of an OWNER/MANAGER.
+- Settings page: "My Profile" (anyone can rename, tag stays fixed) + "Internet Moguls Team" card
+  (OWNER/MANAGER only — reveal/copy/regenerate credentials).
+- Dashboard: "Priya assigned you N new tasks" banner + "Assigned by Priya" chip on task cards,
+  dismissible (`/api/tasks/mark-seen`).
+
+**Verified:** `tsc --noEmit` and `next build` clean (same pre-existing unrelated errors, untouched
+files). **Not yet run:** `prisma db push` (local Postgres container wasn't up) and no deploy —
+all of Session 14 is uncommitted/undeployed pending user go-ahead.
+
+---
+
 ## Production gaps (Railway) — not yet fixed
 - `OPENAI_API_KEY` on the **nexora** service = placeholder — AI proposal generation non-functional.
   (Note: the **helpful-insight** calling service has a working `OPENAI_API_KEY` — that's a separate

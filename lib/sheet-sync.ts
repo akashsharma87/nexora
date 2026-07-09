@@ -144,6 +144,7 @@ async function syncTab(
         eventDate: lead.eventDate ? lead.eventDate.toISOString().split('T')[0] : null,
         propertyName: property?.name || 'our venue',
         managerName,
+        sourceTab: lead.sourceTab,
       })
       await scheduleAiCall({ leadId: lead.id, propertyId: lead.propertyId })
 

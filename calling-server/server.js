@@ -65,11 +65,15 @@ wss.on('connection', (twilioWs, req) => {
   let responseActive = false // true while OpenAI is generating a response (for barge-in)
   let pendingHangup = false  // report_outcome fired → hang up once goodbye finishes playing
   let hangupMarkSent = false
+  let responseCreateSent = false // guards the opening response.create against double-send
   const HANGUP_MARK = 'nexora-hangup'
 
   // ── Open OpenAI Realtime WebSocket ──────────────────────────────────────────
+  // gpt-realtime-2.1 (GA, released 2026-07-06): same session shape as gpt-realtime,
+  // ~25% lower p95 latency and better silence/interruption handling per OpenAI —
+  // verified live against this account with our exact session config before switching.
   const openaiWs = new WebSocket(
-    'wss://api.openai.com/v1/realtime?model=gpt-realtime',
+    'wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1',
     {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -120,6 +124,21 @@ wss.on('connection', (twilioWs, req) => {
       },
     }))
     console.log(`[call:${callId}] session.update sent`)
+
+    // Pipeline response.create right behind session.update on the same ordered
+    // socket instead of waiting for the session.updated ack to come back first.
+    // OpenAI processes events on a connection strictly in the order sent, so the
+    // session is already applied by the time response.create is handled — waiting
+    // for the round-trip ack was adding a full extra network hop of dead air
+    // before Priya's first word.
+    maybeSendResponseCreate()
+  }
+
+  function maybeSendResponseCreate() {
+    if (responseCreateSent) return
+    responseCreateSent = true
+    openaiWs.send(JSON.stringify({ type: 'response.create' }))
+    console.log(`[call:${callId}] response.create sent`)
   }
 
   // Parse + report the report_outcome tool call, at most once per call. This is
@@ -183,10 +202,13 @@ wss.on('connection', (twilioWs, req) => {
       console.log(`[call:${callId}] OpenAI event: ${event.type}${event.error ? ' — ' + JSON.stringify(event.error) : ''}`)
     }
 
-    // Session is ready — trigger Priya's opening line
+    // Confirms the session was applied. response.create is no longer sent here —
+    // it's fired immediately after session.update instead (see configureSession)
+    // to avoid an extra round-trip of dead air. This is kept as a safety-net fallback,
+    // guarded by responseCreateSent, in case configureSession's own send somehow didn't fire.
     if (event.type === 'session.updated') {
-      console.log(`[call:${callId}] ✅ session.updated received — sending response.create`)
-      openaiWs.send(JSON.stringify({ type: 'response.create' }))
+      console.log(`[call:${callId}] ✅ session.updated received`)
+      maybeSendResponseCreate()
     }
 
     // Track whether Priya is currently speaking (for barge-in).
@@ -436,8 +458,8 @@ function buildInstructions({ leadName, eventType, propertyName, eventDate, sourc
   // Only ask for what ISN'T already known — re-asking something they already told the form
   // is the fastest way to sound like she never looked at their enquiry.
   const decisionMakerGuidance = eventType === 'CORPORATE_EVENTS'
-    ? 'Get a natural sense of whether they can finalise this themselves or need internal sign-off from someone else — ask casually, not as a checklist item.'
-    : 'If it fits naturally for a personal occasion like this (wedding, kitty party, birthday, anniversary), get a warm sense of whether they are deciding solo or planning it together with family — phrase it collaboratively and casually, e.g. "family ke saath discuss karke decide karengi, ya aapka hi call hai?". NEVER phrase it like you are asking their permission or checking if they are allowed to decide — that sounds patronising. Skip this entirely for smaller/casual bookings (like a brunch reservation) where it would sound odd.'
+    ? 'Assume they can finalise this themselves unless they say otherwise — they are the one who submitted the enquiry, so they know the event and are the decision-maker. Do not ask whether they need sign-off from someone else; if a budget approval or a colleague\'s involvement comes up naturally in what they say, acknowledge it, but never ask for it as a checklist item.'
+    : 'Assume THEY are the decision-maker for this occasion — they filled out the enquiry themselves, they know the details, so treat them as someone who can decide, full stop. Do NOT ask whether they are deciding alone, with family, or need to "check" with anyone — that question reads as presumptuous and undermines them, never ask it in any phrasing. If it\'s useful, you can casually ask whether they\'re ready to lock this in soon or still comparing a couple of venues — that is about timeline, not about who is "allowed" to decide.'
 
   const whatToLearn = roomStay
     ? [

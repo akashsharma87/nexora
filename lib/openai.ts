@@ -1,5 +1,7 @@
 import OpenAI from 'openai'
 
+import { cleanTabLabel } from '@/lib/whatsapp'
+
 let _client: OpenAI | null = null
 
 function getClient(): OpenAI | null {
@@ -67,6 +69,60 @@ We would be honoured to host your event and look forward to presenting our compl
 Warm regards,
 The Banquet Team
 ${params.propertyName}`
+}
+
+// {{3}} enquiry label for WhatsApp nurture (e.g. "Wedding celebration", "Presidential Suite
+// stay"). AI-generated with a hard deterministic fallback so a missing/failing key never blocks a
+// send. Cached per (track|tab|eventType) at module level — sourceTab values are few and immutable,
+// so a bulk enroll of hundreds of leads makes at most one AI call per distinct campaign tab.
+const _enquiryLabelCache = new Map<string, string>()
+
+export async function generateEnquiryLabel(params: {
+  sourceTab?: string | null
+  eventType: string
+  isStay: boolean
+}): Promise<string> {
+  const key = `${params.isStay ? 'stay' : 'event'}|${params.sourceTab || ''}|${params.eventType}`
+  const cached = _enquiryLabelCache.get(key)
+  if (cached) return cached
+
+  const fallback = enquiryLabelFallback(params)
+  const client = getClient()
+  if (!client) return fallback // don't cache the fallback — let AI take over once a key is set
+
+  const prompt = `You write a very short label describing a hospitality enquiry, used inside a WhatsApp follow-up like "your ___ enquiry at <hotel>".
+Campaign/tab: ${params.sourceTab ? cleanTabLabel(params.sourceTab) : 'unknown'}
+Category: ${params.isStay ? 'room / accommodation stay' : 'event / banquet'}
+Reply with ONLY the label — Title Case, 2 to 4 words, no quotes, no punctuation.
+Examples: Wedding celebration, Kitty party gathering, Corporate event, Presidential Suite stay, Weekend stay.`
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 16,
+      temperature: 0.3,
+    })
+    let label = (response.choices[0]?.message?.content || '')
+      .trim()
+      .split('\n')[0]
+      .replace(/^["']|["']$/g, '')
+      .trim()
+    if (label.length < 2 || label.length > 40) label = fallback
+    _enquiryLabelCache.set(key, label)
+    return label
+  } catch {
+    return fallback
+  }
+}
+
+// The tab name itself is already human-readable ("Kitty Party", "Presidential Suite") and reads
+// naturally in "your Kitty Party enquiry at <hotel>", so it's the primary fallback. Only when
+// there's no tab at all do we drop to a generic word.
+function enquiryLabelFallback(params: { sourceTab?: string | null; eventType: string; isStay: boolean }): string {
+  const tab = cleanTabLabel(params.sourceTab || '')
+  if (tab) return tab
+  return params.isStay ? 'stay' : params.eventType || 'event'
 }
 
 export async function generateSmartInsights(data: {

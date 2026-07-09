@@ -25,5 +25,9 @@ export async function GET() {
     (t) => t.dueDate && new Date(t.dueDate) < new Date()
   ).length
 
-  return NextResponse.json({ tasks, overdueCount })
+  // Tasks Priya (AI caller) created and this user hasn't seen on their
+  // dashboard yet — drives the "assigned by Priya" notification.
+  const newCount = tasks.filter((t) => t.source === 'AI_CALL' && !t.seenAt).length
+
+  return NextResponse.json({ tasks, overdueCount, newCount })
 }

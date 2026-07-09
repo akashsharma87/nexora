@@ -1,4 +1,7 @@
 import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcryptjs'
+
+import { encryptCredential, generateReadablePassword } from '@/lib/credential-crypto'
 
 // Called after a new org/property is created (registration) or manually via /api/setup/seed-defaults
 export async function seedPropertyDefaults(
@@ -9,7 +12,51 @@ export async function seedPropertyDefaults(
     seedTemplates(prisma, propertyId),
     seedPlatforms(prisma, propertyId),
     seedCampaigns(prisma, propertyId),
+    seedMogulUsers(prisma, propertyId),
   ])
+}
+
+// ---------------------------------------------------------------------------
+// Internet Moguls staff seats — 3 per project (mogul-1/2/3)
+// ---------------------------------------------------------------------------
+// Auto-provisioned login accounts for the agency team assigned to this
+// project. `staffTag` is the permanent handle (survives the person renaming
+// their display name later); `tempCredential` stores the generated password
+// encrypted so an OWNER/MANAGER can re-reveal it from Settings to hand off.
+// Login-only email — this domain does not receive real mail.
+const MOGUL_TAGS = ['MOGUL_1', 'MOGUL_2', 'MOGUL_3'] as const
+
+async function seedMogulUsers(prisma: PrismaClient, propertyId: string) {
+  const existing = await prisma.user.count({
+    where: { staffTag: { not: null }, properties: { some: { propertyId } } },
+  })
+  if (existing > 0) return
+
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { organizationId: true },
+  })
+  if (!property) return
+
+  for (let i = 0; i < MOGUL_TAGS.length; i++) {
+    const staffTag = MOGUL_TAGS[i]
+    const seatNumber = i + 1
+    const plainPassword = generateReadablePassword()
+    const hashedPassword = await bcrypt.hash(plainPassword, 12)
+
+    await prisma.user.create({
+      data: {
+        organizationId: property.organizationId,
+        name: `Mogul ${seatNumber}`,
+        email: `mogul${seatNumber}.${propertyId}@nexora.internal`,
+        password: hashedPassword,
+        role: 'EXECUTIVE',
+        staffTag,
+        tempCredential: encryptCredential(plainPassword),
+        properties: { create: { propertyId } },
+      },
+    })
+  }
 }
 
 // ---------------------------------------------------------------------------

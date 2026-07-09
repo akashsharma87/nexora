@@ -10,7 +10,10 @@ export async function GET() {
   if (error) return error
 
   const users = await prisma.user.findMany({
-    where: { organizationId: session.user.organizationId },
+    // Auto-provisioned mogul-1/2/3 seats have their own dedicated management
+    // UI/API (/api/settings/mogul-users) since they need credential reveal —
+    // excluded here so they don't show up twice.
+    where: { organizationId: session.user.organizationId, staffTag: null },
     select: {
       id: true,
       name: true,

@@ -53,6 +53,15 @@ model User {
   phone          String?
   avatarUrl      String?
   isActive       Boolean        @default(true)
+  // Persistent handle for an auto-provisioned Internet Moguls staff seat
+  // (mogul-1/2/3 per project). Independent of `name` so the person can
+  // rename themselves after first login without losing which seat they are.
+  staffTag       StaffTag?
+  // Encrypted copy of the auto-generated password (see lib/credential-crypto.ts),
+  // set only for auto-provisioned staffTag accounts — lets an OWNER/MANAGER
+  // re-reveal the login credentials to hand off, since bcrypt (`password` above)
+  // cannot be reversed. Null for normal user-created accounts.
+  tempCredential String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   organization   Organization   @relation(fields: [organizationId], references: [id])
@@ -68,6 +77,12 @@ enum UserRole {
   OWNER
   MANAGER
   EXECUTIVE
+}
+
+enum StaffTag {
+  MOGUL_1
+  MOGUL_2
+  MOGUL_3
 }
 
 model UserProperty {
@@ -388,19 +403,28 @@ enum ProposalStatus {
 }
 
 model Task {
-  id           String   @id @default(cuid())
+  id           String     @id @default(cuid())
   leadId       String?
   assignedToId String?
   title        String
   description  String?
   dueDate      DateTime?
-  priority     Priority @default(MEDIUM)
-  completed    Boolean  @default(false)
+  priority     Priority   @default(MEDIUM)
+  completed    Boolean    @default(false)
   completedAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  lead         Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  assignedTo   User?    @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  source       TaskSource @default(MANUAL)
+  // Null until the assignee has viewed it on their dashboard — drives the
+  // "Priya assigned you N new tasks" notification for AI_CALL-sourced tasks.
+  seenAt       DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  lead         Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo   User?      @relation("TaskAssignee", fields: [assignedToId], references: [id])
+}
+
+enum TaskSource {
+  MANUAL
+  AI_CALL
 }
 
 enum Priority {

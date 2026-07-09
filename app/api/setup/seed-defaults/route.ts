@@ -16,11 +16,12 @@ export async function POST() {
 
   await seedPropertyDefaults(prisma, session.user.propertyId)
 
-  const [templates, platforms, campaigns] = await Promise.all([
+  const [templates, platforms, campaigns, mogulUsers] = await Promise.all([
     prisma.messageTemplate.count({ where: { propertyId: session.user.propertyId } }),
     prisma.platformListing.count({ where: { propertyId: session.user.propertyId } }),
     prisma.campaign.count({ where: { propertyId: session.user.propertyId } }),
+    prisma.user.count({ where: { staffTag: { not: null }, properties: { some: { propertyId: session.user.propertyId } } } }),
   ])
 
-  return NextResponse.json({ success: true, seeded: { templates, platforms, campaigns } })
+  return NextResponse.json({ success: true, seeded: { templates, platforms, campaigns, mogulUsers } })
 }

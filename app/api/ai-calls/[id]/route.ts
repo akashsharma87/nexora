@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
 import { cancelAiCall } from '@/lib/ai-calling'
-import { scheduleLeadNurtureSequence } from '@/lib/automation'
+import { sendPostCallWhatsApp } from '@/lib/automation'
 import { eventTypeLabels } from '@/lib/format'
+import { pickMogulAssignee } from '@/lib/mogul-assignment'
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { error, session } = await requireSession()
@@ -71,7 +72,7 @@ async function handleOutcomeUpdate(
     where: { id: aiCallId },
     include: {
       lead: {
-        select: { id: true, name: true, phone: true, eventType: true, eventDate: true, stage: true, propertyId: true },
+        select: { id: true, name: true, phone: true, eventType: true, eventDate: true, stage: true, propertyId: true, sourceTab: true },
       },
     },
   })
@@ -100,6 +101,11 @@ async function handleOutcomeUpdate(
   })
 
   if (!systemUser) return NextResponse.json({ updated: true })
+
+  // Priya's follow-up tasks go to the project's Internet Moguls team (round-robin
+  // across mogul-1/2/3, whoever has fewest open tasks), not straight to an
+  // OWNER/MANAGER — systemUser remains the actor for activity-log entries below.
+  const taskAssigneeId = (await pickMogulAssignee(aiCall.propertyId)) ?? systemUser.id
 
   const outcomeLabel: Record<string, string> = {
     QUALIFIED: 'Qualified — interested, details gathered',
@@ -141,11 +147,12 @@ async function handleOutcomeUpdate(
     await prisma.task.create({
       data: {
         leadId: aiCall.leadId,
-        assignedToId: systemUser.id,
+        assignedToId: taskAssigneeId,
         title: `Follow up with ${aiCall.lead.name} — AI call qualified`,
         description: `Budget: ${body.budgetRange ?? 'not mentioned'}. Guests: ${body.guestCount ?? 'not mentioned'}. Notes: ${body.notes}`,
         priority: 'HIGH',
         dueDate: new Date(Date.now() + 60 * 60 * 1000), // 1 hour from now
+        source: 'AI_CALL',
       },
     })
 
@@ -166,11 +173,29 @@ async function handleOutcomeUpdate(
     await prisma.task.create({
       data: {
         leadId: aiCall.leadId,
-        assignedToId: systemUser.id,
+        assignedToId: taskAssigneeId,
         title: `Callback required: ${aiCall.lead.name}`,
         description: `Lead requested callback at: ${body.callbackTime}`,
         priority: 'URGENT',
         dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        source: 'AI_CALL',
+      },
+    })
+  }
+
+  if (body.outcome === 'NOT_QUALIFIED') {
+    // Not interested is still a real conclusion — a light close-out task so
+    // the team can confirm the lead should be marked lost rather than it just
+    // going silent with no one ever seeing why.
+    await prisma.task.create({
+      data: {
+        leadId: aiCall.leadId,
+        assignedToId: taskAssigneeId,
+        title: `Close out: ${aiCall.lead.name} — not interested`,
+        description: body.notes || 'AI call concluded the lead is not interested.',
+        priority: 'LOW',
+        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        source: 'AI_CALL',
       },
     })
   }
@@ -188,6 +213,22 @@ async function handleOutcomeUpdate(
         .join('\n')
       await prisma.lead.update({ where: { id: aiCall.leadId }, data: { notes: updatedNotes } })
     }
+  }
+
+  // On a successful conclusion (lead actually engaged), fire the post-call WhatsApp Priya promised
+  // and cancel the cold scheduled first-touch so the lead gets the warmer message instead of both.
+  // Gated inside sendPostCallWhatsApp on the property's autoWhatsappNurtureEnabled toggle.
+  if (body.outcome === 'QUALIFIED' || body.outcome === 'CALLBACK') {
+    await sendPostCallWhatsApp({
+      leadId: aiCall.leadId,
+      phone: aiCall.lead.phone,
+      leadName: aiCall.lead.name,
+      eventType: eventTypeLabels[aiCall.lead.eventType] || aiCall.lead.eventType,
+      propertyId: aiCall.propertyId,
+      propertyName: property?.name || 'our venue',
+      sourceTab: aiCall.lead.sourceTab,
+      systemUserId: systemUser.id,
+    })
   }
 
   return NextResponse.json({ updated: true })

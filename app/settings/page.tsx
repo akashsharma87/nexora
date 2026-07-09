@@ -1,10 +1,10 @@
 'use client'
 
-import { FormEvent } from 'react'
+import { FormEvent, useState } from 'react'
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
-import { Building2, Check, Loader2, Plus, Users } from 'lucide-react'
+import { Building2, Check, Copy, Eye, EyeOff, Loader2, Plus, RefreshCw, Users, UserCircle } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { useActiveProject, useCreateProject } from '@/components/active-project-provider'
@@ -29,6 +29,29 @@ type User = {
   isActive: boolean
 }
 
+type Profile = {
+  id: string
+  name: string
+  email: string
+  role: string
+  staffTag?: string | null
+}
+
+type MogulUser = {
+  id: string
+  name: string
+  email: string
+  staffTag: string | null
+  isActive: boolean
+  password: string | null
+}
+
+const staffTagLabels: Record<string, string> = {
+  MOGUL_1: 'Mogul-1',
+  MOGUL_2: 'Mogul-2',
+  MOGUL_3: 'Mogul-3',
+}
+
 async function apiGet<T>(url: string): Promise<T> {
   const response = await fetch(url)
   if (!response.ok) throw new Error(`Failed to load ${url}`)
@@ -42,10 +65,16 @@ export default function SettingsPage() {
   const { createProject, isCreating } = useCreateProject()
   const canAddProject = canManage(session?.user?.role)
 
-  const [propertyQuery, usersQuery] = useQueries({
+  const [propertyQuery, usersQuery, profileQuery, mogulUsersQuery] = useQueries({
     queries: [
       { queryKey: ['settings-property'], queryFn: () => apiGet<{ property: Property }>('/api/settings/property') },
       { queryKey: ['settings-users'], queryFn: () => apiGet<{ users: User[] }>('/api/settings/users') },
+      { queryKey: ['settings-profile'], queryFn: () => apiGet<{ user: Profile }>('/api/settings/profile') },
+      {
+        queryKey: ['settings-mogul-users', activeId],
+        queryFn: () => apiGet<{ users: MogulUser[] }>('/api/settings/mogul-users'),
+        enabled: canAddProject,
+      },
     ],
   })
 
@@ -100,6 +129,55 @@ export default function SettingsPage() {
     onError: () => toast.error('User could not be updated'),
   })
 
+  const updateProfile = useMutation({
+    mutationFn: async (payload: { name: string }) => {
+      const response = await fetch('/api/settings/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) throw new Error('Failed to update profile')
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('Profile updated')
+      queryClient.invalidateQueries({ queryKey: ['settings-profile'] })
+    },
+    onError: () => toast.error('Profile could not be updated'),
+  })
+
+  const regenerateMogulPassword = useMutation({
+    mutationFn: async (userId: string) => {
+      const response = await fetch('/api/settings/mogul-users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      if (!response.ok) throw new Error('Failed to regenerate password')
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('Password regenerated')
+      queryClient.invalidateQueries({ queryKey: ['settings-mogul-users'] })
+    },
+    onError: () => toast.error('Password could not be regenerated'),
+  })
+
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set())
+  function toggleRevealed(id: string) {
+    setRevealedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function copyToClipboard(text: string, label: string) {
+    navigator.clipboard.writeText(text)
+    toast.success(`${label} copied`)
+  }
+
   function submitProperty(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -110,6 +188,14 @@ export default function SettingsPage() {
       phone: form.get('phone'),
       email: form.get('email'),
     })
+  }
+
+  function submitProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const name = String(form.get('name') ?? '').trim()
+    if (!name) return
+    updateProfile.mutate({ name })
   }
 
   function submitUser(event: FormEvent<HTMLFormElement>) {
@@ -158,6 +244,8 @@ export default function SettingsPage() {
 
   const property = propertyQuery.data?.property
   const users = usersQuery.data?.users ?? []
+  const profile = profileQuery.data?.user
+  const mogulUsers = mogulUsersQuery.data?.users ?? []
   const activeProjectName = projects.find((project) => project.id === activeId)?.name
 
   return (
@@ -175,6 +263,48 @@ export default function SettingsPage() {
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading settings...
           </div>
+        )}
+
+        {profile && (
+          <section className="rounded-lg border border-border bg-card p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <UserCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-foreground">My Profile</h2>
+                <p className="text-sm text-muted-foreground">
+                  {profile.email}
+                  {profile.staffTag && (
+                    <span className="ml-2 inline-block rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
+                      {staffTagLabels[profile.staffTag] ?? profile.staffTag}
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <form onSubmit={submitProfile} className="flex flex-col sm:flex-row gap-3">
+              <input
+                name="name"
+                defaultValue={profile.name}
+                required
+                minLength={2}
+                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
+              <button
+                disabled={updateProfile.isPending}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+              >
+                {updateProfile.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Name
+              </button>
+            </form>
+            {profile.staffTag && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Your {staffTagLabels[profile.staffTag] ?? profile.staffTag} tag stays the same even if you change your display name.
+              </p>
+            )}
+          </section>
         )}
 
         <section className="rounded-lg border border-border bg-card p-6">
@@ -322,6 +452,74 @@ export default function SettingsPage() {
             </div>
           </section>
         </div>
+
+        {canAddProject && mogulUsers.length > 0 && (
+          <section className="rounded-lg border border-border bg-card p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                <Users className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-foreground">Internet Moguls Team</h2>
+                <p className="text-sm text-muted-foreground">
+                  Auto-provisioned login seats for <span className="font-medium text-foreground">{activeProjectName ?? property?.name}</span> — share these credentials with the assigned teammates. Priya (AI caller) assigns follow-up tasks to them automatically.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {mogulUsers.map((mogul) => {
+                const isRevealed = revealedIds.has(mogul.id)
+                return (
+                  <div key={mogul.id} className="rounded-lg border border-border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-foreground">{mogul.name}</p>
+                          <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
+                            {mogul.staffTag ? staffTagLabels[mogul.staffTag] ?? mogul.staffTag : ''}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{mogul.email}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Generate a new password for ${mogul.name}? The old one will stop working immediately.`)) {
+                            regenerateMogulPassword.mutate(mogul.id)
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1 text-xs text-foreground hover:bg-muted flex-shrink-0"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Regenerate
+                      </button>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <code className="flex-1 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs">
+                        {isRevealed ? mogul.password ?? '—' : '••••••••••••'}
+                      </code>
+                      <button
+                        onClick={() => toggleRevealed(mogul.id)}
+                        className="rounded-lg border border-border p-1.5 text-muted-foreground hover:bg-muted"
+                        title={isRevealed ? 'Hide password' : 'Reveal password'}
+                      >
+                        {isRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                      <button
+                        onClick={() => mogul.password && copyToClipboard(mogul.password, 'Password')}
+                        disabled={!mogul.password}
+                        className="rounded-lg border border-border p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-40"
+                        title="Copy password"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
       </div>
     </DashboardLayout>
   )

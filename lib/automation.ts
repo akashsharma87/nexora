@@ -1,7 +1,14 @@
 import { Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/db'
-import { WATI_TEMPLATES } from '@/lib/whatsapp'
+import {
+  WATI_TEMPLATES,
+  nurtureTrack,
+  buildNurtureHook,
+  sendTemplateMessage,
+  sendSessionMessage,
+} from '@/lib/whatsapp'
+import { generateEnquiryLabel } from '@/lib/openai'
 
 // Safety ceiling shared by both auto-triggers below: a bulk sheet sync or CSV import must never
 // fire more than this many real calls/WhatsApp sequences per property per rolling hour, even
@@ -43,19 +50,34 @@ export async function createNurtureSequence(params: {
   eventDate: string | null
   propertyName: string
   managerName: string
+  sourceTab?: string | null
   baseTime?: Date
 }) {
-  const { leadId, phone, leadName, eventType, eventDate, propertyName, managerName } = params
+  const { leadId, phone, leadName, eventType, propertyName, managerName, sourceTab } = params
   const now = params.baseTime ?? new Date()
 
-  // All nurture templates below (except INITIAL_RESPONSE, handled separately) are
-  // approved/designed with the same 2 vars: {{1}}=name, {{2}}=hotel_name — keep the
-  // params array uniform so a template's actual variable count is never a guess.
-  const twoVarParams = [
+  // Source-aware personalisation is carried entirely in template variables so ONE 4-variable
+  // template family covers every campaign tab + both tracks (see WHATSAPP_NURTURE_TEMPLATE_PLAN.md):
+  //   {{3}} enquiry label — AI-generated per tab, cached, with a deterministic fallback
+  //   {{4}} value hook     — deterministic, binary per track
+  // Branches identically to the AI voice call via the shared isRoomStayInquiry keyword set.
+  const track = nurtureTrack(sourceTab)
+  const hook = buildNurtureHook(track)
+  const label = await generateEnquiryLabel({ sourceTab, eventType, isStay: track === 'STAY' })
+
+  // All 5 templates share the same 4 vars in the same order — {{1}}=name, {{2}}=property,
+  // {{3}}=enquiry label, {{4}}=value hook — so the params array is uniform and a template's real
+  // variable count is never a guess.
+  const params4 = [
     { name: '1', value: leadName },
     { name: '2', value: propertyName },
+    { name: '3', value: label },
+    { name: '4', value: hook },
   ]
 
+  // The `message` on each payload is the free-text session fallback the cron uses ONLY if the
+  // template isn't approved yet (sent within the 24-hr window). Kept honest: it does NOT promise
+  // photos/videos until a per-property media pack exists (same honesty fix as the AI voice script).
   const messages = [
     {
       templateType: 'INITIAL_RESPONSE' as const,
@@ -63,25 +85,17 @@ export async function createNurtureSequence(params: {
       scheduledAt: new Date(now.getTime() + 10 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.INITIAL_RESPONSE,
-        // nexora_initial_response is approved with exactly 2 vars: {{1}}=name, {{2}}=hotel_name
-        // (matches app/api/leads/[id]/whatsapp/route.ts's manual send) — do not reuse the
-        // shared 3-5-param templateParams here, it doesn't match this template's variable count.
-        parameters: [
-          { name: '1', value: leadName },
-          { name: '2', value: propertyName },
-        ],
-        message: `Hi ${leadName}! 🎉 Thank you for your enquiry about ${eventType} at ${propertyName}. We would love to host your special occasion! I am attaching our banquet brochure and pricing details. Our hall accommodates 50–500 guests with stunning décor options. Can we schedule a quick call or venue visit? Reply YES to confirm. — ${managerName}`,
+        parameters: params4,
+        message: `Hi ${leadName}, thank you for your ${label} enquiry at ${propertyName}. I would be glad to help you with ${hook}. If convenient, we can arrange a quick call or visit to take this forward. — ${managerName}`,
       },
     },
     {
       templateType: 'NURTURE_DAY1' as const,
-      // Day 1: venue photos + packages (image-capable template)
       scheduledAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.NURTURE_DAY1,
-        parameters: twoVarParams,
-        message: `Hi ${leadName}! 🏛️ Here are some stunning photos of ${propertyName} and our latest ${eventType} packages. We have beautiful setups for 50–500 guests. Would you like to see more or schedule a venue tour? — ${managerName}`,
-        imageUrl: null, // set a Cloudflare R2 / CDN URL per property when available
+        parameters: params4,
+        message: `Hi ${leadName}, following up on your ${label} enquiry at ${propertyName}. I can help you with ${hook}. Would a quick call work for you today? — ${managerName}`,
       },
     },
     {
@@ -89,8 +103,8 @@ export async function createNurtureSequence(params: {
       scheduledAt: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.NURTURE_DAY3,
-        parameters: twoVarParams,
-        message: `Hi ${leadName}, following up on your ${eventType} enquiry 😊 We have exclusive packages available and recently hosted several beautiful events with rave reviews! Would you like to see our latest venue photos and an updated quote? — ${managerName}`,
+        parameters: params4,
+        message: `Hi ${leadName}, checking in on your ${label} plan at ${propertyName}. If you are comparing options, I can share ${hook}. Happy to arrange a call or visit whenever it suits you. — ${managerName}`,
       },
     },
     {
@@ -98,8 +112,8 @@ export async function createNurtureSequence(params: {
       scheduledAt: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.NURTURE_DAY5,
-        parameters: twoVarParams,
-        message: `Hi ${leadName}! Sharing what our recent guests say about ${propertyName} 🌟 "Absolutely stunning venue — the team went above and beyond!" Would you like to schedule a venue tour this week? — ${managerName}`,
+        parameters: params4,
+        message: `Hi ${leadName}, a quick update from ${propertyName} on your ${label} enquiry. Our recent guests have really enjoyed their experience with us. Can I help you with ${hook} this week? — ${managerName}`,
       },
     },
     {
@@ -107,8 +121,8 @@ export async function createNurtureSequence(params: {
       scheduledAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
       payload: {
         templateName: WATI_TEMPLATES.NURTURE_DAY7,
-        parameters: twoVarParams,
-        message: `Hi ${leadName}, last follow-up from my side! 🙏 ${eventDate ? `Your ${eventDate} date has` : 'Your preferred date may have'} limited availability — a few other enquiries are pending for the same period. Can we do a quick 10-minute call today to finalise your package? Reply CALL and I will reach out immediately. — ${managerName}`,
+        parameters: params4,
+        message: `Hi ${leadName}, a final follow-up on your ${label} enquiry at ${propertyName}. If you still need ${hook}, our team would be glad to help. You can reply here anytime to connect. — ${managerName}`,
       },
     },
   ]
@@ -137,6 +151,7 @@ export async function scheduleLeadNurtureSequence(params: {
   eventDate: string | null
   propertyName: string
   managerName: string
+  sourceTab?: string | null
 }) {
   const { propertyId, ...rest } = params
 
@@ -148,6 +163,82 @@ export async function scheduleLeadNurtureSequence(params: {
   if ((await hourlyNurtureStartCount(propertyId)) >= AUTOMATION_HOURLY_CAP) return
 
   await createNurtureSequence(rest)
+}
+
+// Fired immediately from the AI-call outcome handler when Priya's call reaches a successful
+// conclusion (QUALIFIED / CALLBACK): sends the warm "Priya just connected with you" WhatsApp the
+// caller promised, then cancels the pending cold INITIAL_RESPONSE so the lead isn't also sent the
+// generic first-touch. Gated on the same autoWhatsappNurtureEnabled toggle as the rest of WhatsApp
+// automation — a property with WhatsApp automation off sends nothing here either.
+export async function sendPostCallWhatsApp(params: {
+  leadId: string
+  phone: string
+  leadName: string
+  eventType: string
+  propertyId: string
+  propertyName: string
+  sourceTab?: string | null
+  callerName?: string
+  systemUserId?: string
+}): Promise<{ sent: boolean }> {
+  const property = await prisma.property.findUnique({
+    where: { id: params.propertyId },
+    select: { autoWhatsappNurtureEnabled: true },
+  })
+  if (!property?.autoWhatsappNurtureEnabled) return { sent: false }
+
+  const track = nurtureTrack(params.sourceTab)
+  const hook = buildNurtureHook(track)
+  const label = await generateEnquiryLabel({
+    sourceTab: params.sourceTab,
+    eventType: params.eventType,
+    isStay: track === 'STAY',
+  })
+  const caller = params.callerName || 'Priya'
+
+  // Same 4-var family as the nurture templates: {{1}}=name, {{2}}=property, {{3}}=label, {{4}}=hook.
+  const parameters = [
+    { name: '1', value: params.leadName },
+    { name: '2', value: params.propertyName },
+    { name: '3', value: label },
+    { name: '4', value: hook },
+  ]
+
+  let result = await sendTemplateMessage(
+    params.phone,
+    WATI_TEMPLATES.POST_CALL,
+    parameters,
+    `nx_postcall_${params.leadId.slice(0, 8)}`
+  )
+  // A just-called lead usually has no open 24-hr WhatsApp session window (they got a phone call,
+  // not a chat), so POST_CALL must be an approved template to actually deliver — the free-text
+  // fallback only lands if the lead has messaged us within 24 hrs.
+  if (!result.success) {
+    result = await sendSessionMessage(
+      params.phone,
+      `Hi ${params.leadName}, ${caller} from ${params.propertyName} just connected with you about your ${label} enquiry. As promised, I can help you with ${hook} — reply here anytime and we'll take it forward.`
+    )
+  }
+
+  // The warmer post-call message replaces the cold scheduled first-touch for this lead.
+  await prisma.scheduledMessage.updateMany({
+    where: { leadId: params.leadId, status: 'PENDING', templateType: 'INITIAL_RESPONSE' },
+    data: { status: 'CANCELLED' },
+  })
+
+  if (result.success && params.systemUserId) {
+    await prisma.leadActivity.create({
+      data: {
+        leadId: params.leadId,
+        userId: params.systemUserId,
+        type: 'WHATSAPP_SENT',
+        content: `Post-call WhatsApp sent after ${caller}'s call`,
+        metadata: { templateType: 'POST_CALL', automated: true },
+      },
+    })
+  }
+
+  return { sent: result.success }
 }
 
 export async function schedulePostEventSequence(params: {
