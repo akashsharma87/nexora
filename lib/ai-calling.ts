@@ -42,7 +42,7 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
     where: { id: aiCallId },
     include: {
       lead: {
-        select: { name: true, phone: true, eventType: true, eventDate: true },
+        select: { name: true, phone: true, eventType: true, eventDate: true, sourceTab: true },
       },
     },
   })
@@ -74,6 +74,12 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
   ]
   if (aiCall.lead.eventDate) {
     params.push(['eventDate', aiCall.lead.eventDate.toISOString().split('T')[0]])
+  }
+  // Which sheet tab/campaign this lead came from (e.g. "Presidential Suite" vs "Kitty Party") —
+  // lets the calling server distinguish a room-stay enquiry from a banquet-event enquiry and
+  // personalize the opening line instead of always saying "banquet".
+  if (aiCall.lead.sourceTab) {
+    params.push(['sourceTab', aiCall.lead.sourceTab])
   }
   const paramXml = params
     .map(([k, v]) => `<Parameter name="${k}" value="${xmlEsc(v)}" />`)

@@ -48,6 +48,7 @@ wss.on('connection', (twilioWs, req) => {
   let eventType = formatEventType(url.searchParams.get('eventType') || 'event')
   let propertyName = url.searchParams.get('propertyName') || 'our venue'
   let eventDate = url.searchParams.get('eventDate') || null
+  let sourceTab = url.searchParams.get('sourceTab') || null
 
   console.log(`[call:${callId}] New Twilio connection — lead: ${leadName}`)
 
@@ -89,7 +90,7 @@ wss.on('connection', (twilioWs, req) => {
       session: {
         type: 'realtime',
         output_modalities: ['audio'],
-        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate }),
+        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab }),
         tools: [outcomeReportTool],
         tool_choice: 'auto',
         audio: {
@@ -298,6 +299,7 @@ wss.on('connection', (twilioWs, req) => {
       if (cp.eventType) eventType = formatEventType(cp.eventType)
       if (cp.propertyName) propertyName = cp.propertyName
       if (cp.eventDate) eventDate = cp.eventDate
+      if (cp.sourceTab) sourceTab = cp.sourceTab
       started = true
 
       console.log(`[call:${callId}] ✅ Twilio stream started — SID: ${streamSid}, lead: ${leadName}, buffered chunks: ${audioBuffer.length}`)
@@ -377,15 +379,54 @@ function firstNameOf(fullName) {
   return first || fullName
 }
 
-function buildInstructions({ leadName, eventType, propertyName, eventDate }) {
+// A lead from a "Presidential Suite" tab wants to book a personal room stay, not host a
+// banquet — asking them "how many guests for your event" makes no sense. Detected from the
+// sheet-tab name only (kept local to the calling script; does not touch the CRM's EventType
+// taxonomy or any other feature) since tab names already describe the enquiry in plain words.
+function isRoomStayInquiry(tabName) {
+  if (!tabName) return false
+  const l = tabName.toLowerCase()
+  return l.includes('suite') || l.includes('room') || l.includes('stay') || l.includes('accommodation')
+}
+
+function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
-  return `You are Priya, a warm banquet coordinator calling ${leadName} from ${propertyName}. ${leadName} submitted an enquiry about a ${eventType}${dateClause}.
+  const roomStay = isRoomStayInquiry(sourceTab)
+
+  // Say back what they actually asked about — "Kitty Party" or "Wedding" (the real tab name)
+  // reads far more naturally to the lead than the generic word "banquet" for every call.
+  const enquiryLabel = sourceTab ? sourceTab.trim() : (roomStay ? 'a stay' : eventType)
+
+  const personaLine = roomStay
+    ? `You are Priya, a warm guest-relations executive calling ${leadName} from ${propertyName}. ${leadName} enquired about ${enquiryLabel}${dateClause}.`
+    : `You are Priya, a warm banquet coordinator calling ${leadName} from ${propertyName}. ${leadName} submitted an enquiry about ${enquiryLabel}${dateClause}.`
+
+  const openingLine = roomStay
+    ? `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} mein stay ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
+    : `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
+
+  const whatToLearn = roomStay
+    ? `- Their check-in and check-out dates (exact if they have them, or roughly which dates/month if not fixed yet).
+- How many guests will be staying.
+- The purpose of the stay (leisure trip, business, anniversary or another special occasion) — ask casually, not like a form.
+- Any room preference or special request they mention.
+- Whether they're ready to book once they know rates and availability, or still comparing options.`
+    : `- The occasion, and roughly when they're planning it.
+- Roughly how many guests.
+- Budget range they have in mind (ask gently, casually).
+- Whether they decide, or discuss with family.`
+
+  const closingLine = roomStay
+    ? "you'll send room availability and rates on WhatsApp right away, and our reservations team will call within the hour to confirm."
+    : 'you\'ll send venue photos, packages and pricing on WhatsApp right away, and a senior colleague will call within the hour for details.'
+
+  return `${personaLine}
 
 # ROLE & OBJECTIVE
-Have a genuine, friendly phone chat to understand their event and gauge interest — then hand off warmly. You are a real person, NOT a bot, NOT a survey. You've done this hundreds of times; it's easy and natural.
+Have a genuine, friendly phone chat to understand ${roomStay ? 'their stay plans' : 'their event'} and gauge interest — then hand off warmly. You are a real person, NOT a bot, NOT a survey. You've done this hundreds of times; it's easy and natural.
 
 # PERSONALITY & TONE
-- Warm, friendly, lightly chatty; genuinely curious about their event. Smile in your voice.
+- Warm, friendly, lightly chatty; genuinely curious about ${roomStay ? 'their stay' : 'their event'}. Smile in your voice.
 - Talk like a real Indian person on the phone: natural Hinglish (Hindi + English mixed). Switch fully to English only if they clearly prefer it.
 - Keep EVERY turn short — 1 to 2 sentences, one idea at a time. Then STOP and listen. Never monologue. Never stack two questions.
 - Match their energy: excited when they share happy news, calm and reassuring if they sound unsure.
@@ -414,20 +455,17 @@ Have a genuine, friendly phone chat to understand their event and gauge interest
 - NEVER attach "ji" directly after their name (e.g. never say "${leadName} ji"). Say the name plainly on its own — "${leadName}, ..." — or drop the name and use "ji" elsewhere in the sentence instead. "ji" is fine as a general polite word elsewhere, just never stuck right after their name.
 
 # OPENING
-Open warmly and naturally, in your own words — e.g. "Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein banquet ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?" (Don't read it verbatim — say it fresh.)
+Open warmly and naturally, in your own words — e.g. "${openingLine}" (Don't read it verbatim — say it fresh.)
 
-Once they confirm they're free to talk (any clear "yes"/"haan"/"bolo" type response), move straight into warm curiosity about their event — do NOT treat their "yes" as a reason to wrap up, offer a callback, or mention a senior colleague. Those closing moves are ONLY for when they say they're busy, not interested, or you've finished gathering what you need in WHAT TO LEARN below.
+Once they confirm they're free to talk (any clear "yes"/"haan"/"bolo" type response), move straight into warm curiosity about ${roomStay ? 'their stay' : 'their event'} — do NOT treat their "yes" as a reason to wrap up, offer a callback, or mention a senior colleague. Those closing moves are ONLY for when they say they're busy, not interested, or you've finished gathering what you need in WHAT TO LEARN below.
 
 # WHAT TO LEARN (through natural chat, NOT a checklist — react to each answer before the next)
-- The occasion, and roughly when they're planning it.
-- Roughly how many guests.
-- Budget range they have in mind (ask gently, casually).
-- Whether they decide, or discuss with family.
+${whatToLearn}
 Weave these in like a friendly, curious chat — never fire them one after another like a form.
 
 # ENDING THE CALL (important — always close cleanly, never trail off)
 Every call must reach a clear ending — never go quiet waiting for them once you've said what you need to. When you're ready to close:
-1. Say your closing message naturally. For an interested lead: you'll send venue photos, packages and pricing on WhatsApp right away, and a senior colleague will call within the hour for details.
+1. Say your closing message naturally. For an interested lead: ${closingLine}
 2. Then say a warm, complete goodbye — e.g. "Aapka bahut shukriya ji, aapka din shubh rahe. Namaste!" This is a definite sign-off, not a question. Do NOT ask anything after it or wait for them to reply.
 3. As your VERY LAST action, in the same turn right after the spoken goodbye, call the report_outcome function. Calling it ends the call — so only call it once you have truly finished speaking your goodbye.
 
@@ -455,11 +493,15 @@ const outcomeReportTool = {
         type: 'number',
         description: '0–100. 100 = very interested with clear requirements.',
       },
-      eventDate: { type: 'string', description: 'YYYY-MM-DD or null' },
-      guestCount: { type: 'number', description: 'Guest count or null' },
-      budgetRange: { type: 'string', description: 'e.g. "5-7 lakhs" or null' },
+      eventDate: { type: 'string', description: 'YYYY-MM-DD or null. For a room-stay call, use the check-in date here.' },
+      guestCount: { type: 'number', description: 'Guest count, or number of guests staying for a room-stay call. Null if unknown.' },
+      budgetRange: { type: 'string', description: 'e.g. "5-7 lakhs" or null. Not applicable to room-stay calls — omit it.' },
       callbackTime: { type: 'string', description: 'When they want callback — for CALLBACK outcome' },
-      notes: { type: 'string', description: 'Brief 1-2 sentence summary' },
+      notes: {
+        type: 'string',
+        description:
+          'Brief 1-2 sentence summary. For a room-stay call, include the check-out date and any room preference here (there is no separate field for them).',
+      },
     },
     required: ['outcome', 'qualifiedScore', 'notes'],
   },

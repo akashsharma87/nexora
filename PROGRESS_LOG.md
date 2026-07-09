@@ -795,6 +795,54 @@ credentials available in this environment; worth a quick manual check after depl
 
 **No schema change** — `Lead.sourceTab` already existed from Session 11; this was all reads/UI.
 
+### Same day — AI caller was using one static banquet script for every lead
+
+User flagged that a lead from a "Presidential Suite" sheet tab and a lead from a "Kitty Party"
+tab should not get the same conversation from Priya. Investigation confirmed this was worse than
+just "generic wording":
+
+- `buildInstructions()` (`calling-server/server.js`) only ever received `leadName`, `eventType`,
+  `propertyName`, `eventDate` — `sourceTab` never reached the calling server at all.
+- The opening line was **hardcoded** to the word "banquet" for every single call, and the whole
+  "WHAT TO LEARN" section only asked about guest count / budget for hosting an event.
+- A "Presidential Suite" lead isn't hosting a banquet — that sheet tab's own columns (Type Of
+  Room, Check-In/Check-Out Date, Purpose Of Stay) show they want to book a **room for a personal
+  stay**. Priya had no way to know this and would have asked them about "guest count for your
+  event," which makes no sense to someone booking a room.
+
+**Fix — two parts:**
+1. **Wired `sourceTab` through the pipeline** — `lib/ai-calling.ts` now selects it from the lead
+   and passes it as a Twilio `<Parameter>`; `calling-server/server.js`'s `start` handler reads it
+   from `customParameters` alongside the existing fields.
+2. **Split `buildInstructions()` into two flows**, chosen by a new `isRoomStayInquiry(tabName)`
+   keyword check (suite/room/stay/accommodation) kept local to the calling script only — does
+   NOT touch the CRM's `EventType` enum or any other feature, so this doesn't ripple into
+   dashboards/filters:
+   - **Banquet-event tabs** (Wedding, Kitty Party, Corporate, etc.): same flow as before, but the
+     opening line now says the *actual* tab name ("...aapne humein **Kitty Party** ke liye
+     enquiry bheji thi") instead of the hardcoded word "banquet" — works for any tab automatically,
+     no per-tab hardcoding needed.
+   - **Room-stay tabs**: different persona framing ("guest-relations executive," not "banquet
+     coordinator") and different WHAT TO LEARN — check-in/check-out dates, number of guests
+     staying, purpose of stay, room preference — instead of guest-count/budget-for-hosting.
+3. **Did not add a new outcome field for check-out date** — traced `report_outcome`'s tool schema
+   through `reportOutcomeToNexora()` → `PATCH /api/ai-calls/[id]` → `handleOutcomeUpdate()` in
+   `app/api/ai-calls/[id]/route.ts` and confirmed that route's body type only reads `outcome,
+   qualifiedScore, eventDate, guestCount, budgetRange, callbackTime, notes` — a new field would
+   have been silently dropped (spoken by the AI, never stored). Instead reused existing fields
+   for room-stay calls (`eventDate` = check-in date, `guestCount` = guests staying) which already
+   flow end-to-end into `Lead.notes` and the activity log with zero backend changes, and told the
+   model to fold check-out date + room preference into the existing free-text `notes` field.
+
+**Verified:** `node --check calling-server/server.js` (separate Node service, not covered by
+`next build`/`tsc`) plus a full manual read-through of the generated instruction text for both
+branches. `npx tsc --noEmit` / `npx next build` clean on the `lib/ai-calling.ts` side. **Not
+verified with a real test call** — this changes what a live AI voice call says to a real lead;
+recommend a real Presidential Suite lead call and a real banquet-tab lead call before broad use.
+
+**Deploy note:** this change spans BOTH Railway services — `nexora` (`lib/ai-calling.ts`) and
+`helpful-insight` (`calling-server/server.js`) — both need `railway up` from repo root.
+
 ---
 
 ## Production gaps (Railway) — not yet fixed
