@@ -795,7 +795,11 @@ credentials available in this environment; worth a quick manual check after depl
 
 **No schema change** — `Lead.sourceTab` already existed from Session 11; this was all reads/UI.
 
-### Same day — AI caller was using one static banquet script for every lead
+---
+
+## Session 13 — July 9, 2026
+
+### AI caller was using one static banquet script for every lead
 
 User flagged that a lead from a "Presidential Suite" sheet tab and a lead from a "Kitty Party"
 tab should not get the same conversation from Priya. Investigation confirmed this was worse than
@@ -843,7 +847,7 @@ recommend a real Presidential Suite lead call and a real banquet-tab lead call b
 **Deploy note:** this change spans BOTH Railway services — `nexora` (`lib/ai-calling.ts`) and
 `helpful-insight` (`calling-server/server.js`) — both need `railway up` from repo root.
 
-### Same day — manual sourceTab field on Add Lead, for testing the room-stay/banquet split
+### Manual sourceTab field on Add Lead, for testing the room-stay/banquet split
 
 No way existed to test the new room-stay-vs-banquet AI-calling branch without actually running a
 real sheet sync. Added a "Sheet Tab (optional)" text input to `/leads/new` (`sourceTab`, newly
@@ -856,7 +860,7 @@ branch without needing the auto-call toggle on or a real sheet connection.
 
 **Verified:** `npx tsc --noEmit` / `npx next build` clean.
 
-### Same day — Priya ignored guest count/budget/date already on the lead, and asked a tone-deaf question
+### Priya ignored guest count/budget/date already on the lead, and asked a tone-deaf question
 
 User caught two real issues on a live test call: (1) Priya asked a blunt, patronising-sounding
 question in Hindi — roughly "will you decide yourself or check with your family and let us
@@ -900,14 +904,35 @@ sounds spoken aloud by the model on a live call.
 ---
 
 ## Production gaps (Railway) — not yet fixed
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` missing from Railway env
-- `OPENAI_API_KEY` = placeholder — AI proposal generation non-functional
+- `OPENAI_API_KEY` on the **nexora** service = placeholder — AI proposal generation non-functional.
+  (Note: the **helpful-insight** calling service has a working `OPENAI_API_KEY` — that's a separate
+  env var on a separate service; the AI voice calls run on real OpenAI credits.)
 - SMTP not configured — email stubs active
-- Railway Cron job not set up — endpoint `POST /api/cron/process-messages` exists, needs Cron service
+- Railway Cron job not set up — endpoint `POST /api/cron/process-messages` exists, needs Cron service.
+  This is why AI calls/WhatsApp scheduled via the auto-toggles won't fire on their own yet — the
+  cron that picks up PENDING `AiCall`/`ScheduledMessage` rows isn't running; the manual
+  bulk-trigger buttons dial/send immediately instead (see `/api/ai-calls/bulk-trigger`,
+  `/api/whatsapp/bulk-nurture-trigger`).
+
+**Resolved since first logged:** `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`
+are now set on the nexora service (confirmed this session — the Google Sheets sync authenticates
+and runs in prod; the on-disk `hotel-dashboard-*.json` and local `.env`/`.env.local` keys are stale
+`invalid_grant`, but the Railway env key is live).
 
 ## What's Stubbed / Not Yet Wired
 - SMTP: `lib/email.ts` ready, needs SMTP env vars
 - OpenAI: `lib/openai.ts` ready with rule-based fallback, needs `OPENAI_API_KEY`
 - Railway Cron: `* * * * *` → `POST /api/cron/process-messages` with `x-cron-secret` header
 - Platform content score checklist — `contentChecklist` schema field not yet added
-- Source-to-campaign attribution on lead create form — endpoint exists, UI dropdown not wired
+
+## Deferred / next up
+- **AI voice calling — not yet confirmed on a real phone call** since the per-tab (room-stay vs.
+  banquet), known-details-confirmation, and decision-maker-phrasing changes (Sessions 12–13). All
+  verified as well-formed generated text via dry runs, but how it sounds spoken on a live call is
+  unconfirmed. Recommended test: one Presidential Suite lead + one banquet-tab lead with
+  guestCount/eventDate pre-filled, placed via the "Call with AI" button.
+- **Per-tab WhatsApp nurture content** — the nurture sequence is still one set of templates for all
+  campaigns; only the AI *voice* script branches per tab so far. Differentiating WhatsApp copy per
+  campaign tab is not built.
+- Google/Meta Ads sync still pulls all campaigns incl. non-lead-gen boosted posts (flagged Session
+  10); lifetime totals vs. Ads Manager's 30-day default still differ.
