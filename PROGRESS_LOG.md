@@ -843,6 +843,19 @@ recommend a real Presidential Suite lead call and a real banquet-tab lead call b
 **Deploy note:** this change spans BOTH Railway services — `nexora` (`lib/ai-calling.ts`) and
 `helpful-insight` (`calling-server/server.js`) — both need `railway up` from repo root.
 
+### Same day — manual sourceTab field on Add Lead, for testing the room-stay/banquet split
+
+No way existed to test the new room-stay-vs-banquet AI-calling branch without actually running a
+real sheet sync. Added a "Sheet Tab (optional)" text input to `/leads/new` (`sourceTab`, newly
+added to `leadCreateSchema` in `lib/validations/lead.ts` — `POST /api/leads` already spreads
+`parsed.data` straight into `prisma.lead.create`, so no route change was needed beyond the schema).
+Labelled clearly as a manual override normally set by the sheet sync. A lead created this way and
+then called via the existing "Call with AI" button on the lead detail page flows through the same
+`initiateAiCall()` updated earlier today, so it correctly exercises the room-stay vs. banquet-event
+branch without needing the auto-call toggle on or a real sheet connection.
+
+**Verified:** `npx tsc --noEmit` / `npx next build` clean.
+
 ---
 
 ## Production gaps (Railway) — not yet fixed

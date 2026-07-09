@@ -45,6 +45,7 @@ export default function NewLeadPage() {
       budgetMax: form.get('budgetMax'),
       source: form.get('source'),
       notes: form.get('notes'),
+      sourceTab: form.get('sourceTab'),
       ...(campaignId ? { campaignId } : {}),
     }
 
@@ -141,6 +142,17 @@ export default function NewLeadPage() {
                 </select>
               </label>
             )}
+            <label className="space-y-2">
+              <span className="text-sm font-medium">Sheet Tab <span className="text-muted-foreground font-normal">(optional)</span></span>
+              <input
+                name="sourceTab"
+                placeholder="e.g. Presidential Suite, Kitty Party"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+              <span className="block text-xs text-muted-foreground">
+                Normally set automatically by the Google Sheets sync. Set it manually here to test how the AI caller responds to a given campaign tab.
+              </span>
+            </label>
           </div>
 
           <label className="space-y-2 block">

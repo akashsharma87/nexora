@@ -18,6 +18,9 @@ export const leadCreateSchema = z.object({
   notes: z.preprocess(emptyToUndefined, z.string().optional()),
   assignedToId: z.preprocess(emptyToUndefined, z.string().optional()),
   campaignId: z.preprocess(emptyToUndefined, z.string().optional()),
+  // Manually testing which sheet-tab (e.g. "Presidential Suite") the AI caller should treat
+  // this lead as — normally set automatically by the Google Sheets sync, never by hand.
+  sourceTab: z.preprocess(emptyToUndefined, z.string().optional()),
 })
 
 export const leadUpdateSchema = leadCreateSchema.partial()
