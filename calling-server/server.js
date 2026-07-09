@@ -69,11 +69,13 @@ wss.on('connection', (twilioWs, req) => {
   const HANGUP_MARK = 'nexora-hangup'
 
   // ── Open OpenAI Realtime WebSocket ──────────────────────────────────────────
-  // gpt-realtime-2.1 (GA, released 2026-07-06): same session shape as gpt-realtime,
-  // ~25% lower p95 latency and better silence/interruption handling per OpenAI —
-  // verified live against this account with our exact session config before switching.
+  // Reverted from gpt-realtime-2.1 back to gpt-realtime: 2.1 had a much stronger
+  // American-accent bias that the Indian-accent instruction couldn't override, and
+  // it also drifted into English on its own. gpt-realtime holds the Indian Hinglish
+  // delivery far better. NOTE: gpt-realtime does NOT accept the `reasoning` param
+  // (rejects with "Unsupported option for this model") — so it must not be sent below.
   const openaiWs = new WebSocket(
-    'wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1',
+    'wss://api.openai.com/v1/realtime?model=gpt-realtime',
     {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -98,11 +100,9 @@ wss.on('connection', (twilioWs, req) => {
         type: 'realtime',
         output_modalities: ['audio'],
         instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax }),
-        // Lowest supported reasoning effort (values: minimal/low/medium/high/xhigh,
-        // verified against gpt-realtime-2.1). A phone qualification chat is a simple
-        // conversational task — extended reasoning just adds "thinking" latency before
-        // every turn, most noticeably before Priya's opening word. minimal cuts that.
-        reasoning: { effort: 'minimal' },
+        // NOTE: do NOT add a `reasoning` param here — gpt-realtime rejects it
+        // ("Unsupported option for this model"), which would fail the whole
+        // session.update and leave the call silent. It's a gpt-realtime-2.1-only option.
         tools: [outcomeReportTool],
         tool_choice: 'auto',
         audio: {
@@ -498,9 +498,17 @@ Have a genuine, friendly phone chat to understand ${roomStay ? 'their stay plans
 - Pronounce Hindi words (Namaste, haan, achha, theek hai, ji, bilkul, shukriya) exactly as a native Hindi speaker would — never anglicise them.
 - Pronounce Indian names, cities and the property name the Indian way.
 
+# LANGUAGE (CRITICAL — follow strictly)
+- Your DEFAULT language is natural Hinglish — Hindi mixed with English words the way urban Indians actually speak. Start in Hinglish and STAY in Hinglish for the whole call by default.
+- MIRROR THE LEAD. Match whatever language they use to you, turn by turn:
+  - If they speak Hindi or Hinglish → you speak Hinglish. This is the default.
+  - If a given reply from them is fully in English → you may reply in English for that turn, then naturally come back toward Hinglish.
+- Do NOT switch to full English on your own. Never decide "this person would prefer English" and switch unprompted — only ever follow their lead. When in doubt, stay in Hinglish.
+- Even when you do use English words, keep the Indian accent and the warm Hinglish texture — never turn into a formal, fully-English call-centre script.
+
 # PERSONALITY & TONE
 - Warm, friendly, lightly chatty; genuinely curious about ${roomStay ? 'their stay' : 'their event'}. Smile in your voice.
-- Talk like a real Indian person on the phone: natural Hinglish (Hindi + English mixed), spoken in an Indian accent. Switch fully to English only if they clearly prefer it — but keep the Indian accent even then.
+- Talk like a real Indian person on the phone: natural Hinglish, spoken in an Indian accent (follow the LANGUAGE rule above for when English is okay).
 - Keep EVERY turn short — 1 to 2 sentences, one idea at a time. Then STOP and listen. Never monologue. Never stack two questions.
 - Match their energy: excited when they share happy news, calm and reassuring if they sound unsure.
 
