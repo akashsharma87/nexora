@@ -148,11 +148,11 @@ export async function addWatiContact(
 // Override any template via env vars (e.g. WATI_TEMPLATE_INITIAL_RESPONSE=my_template_name).
 // Wati dashboard → Templates → Your templates
 export const WATI_TEMPLATES = {
-  INITIAL_RESPONSE: process.env.WATI_TEMPLATE_INITIAL_RESPONSE || 'nexora_initial_response',
+  INITIAL_RESPONSE: process.env.WATI_TEMPLATE_INITIAL_RESPONSE || 'nexora_initial_responses',
   // Fired immediately after a successful AI call (QUALIFIED/CALLBACK) — the warm "Priya just
   // spoke with you" follow-up. Replaces the cold INITIAL_RESPONSE for leads that were called.
   POST_CALL: process.env.WATI_TEMPLATE_POST_CALL || 'nexora_post_call',
-  NURTURE_DAY1: process.env.WATI_TEMPLATE_NURTURE_DAY1 || 'nexora_nurture_day1',
+  NURTURE_DAY1: process.env.WATI_TEMPLATE_NURTURE_DAY1 || 'nexora_nurture_day_1',
   NURTURE_DAY3: process.env.WATI_TEMPLATE_NURTURE_DAY3 || 'nexora_nurture_day3',
   NURTURE_DAY5: process.env.WATI_TEMPLATE_NURTURE_DAY5 || 'nexora_nurture_day5',
   NURTURE_DAY7: process.env.WATI_TEMPLATE_NURTURE_DAY7 || 'nexora_nurture_day7',
