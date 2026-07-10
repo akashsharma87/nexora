@@ -946,6 +946,36 @@ all of Session 14 is uncommitted/undeployed pending user go-ahead.
 
 ---
 
+## Session 15 — July 10, 2026
+
+### Two production bugs reported from the live lead detail page — both fixed
+
+**1. Manual "Send via WhatsApp" (INITIAL_RESPONSE) rejected by Wati**
+- Symptom: toast "Check your template, it cannot have typos or blank text" (raw Wati error).
+- Root cause: the approved `nexora_initial_responses` template has **4 variables** ({{1}} name,
+  {{2}} venue, {{3}} enquiry label, {{4}} value hook), but `app/api/leads/[id]/whatsapp/route.ts`
+  only sent {{1}} and {{2}} — Wati rejects a send whose params don't fill every placeholder, so
+  {{3}}/{{4}} came through blank.
+- Fix: build all 4 params, reusing the exact helpers the automated nurture flow already uses
+  (`nurtureTrack` + `buildNurtureHook` from `lib/whatsapp.ts`, `generateEnquiryLabel` from
+  `lib/openai.ts`) so the manual send and the scheduled INITIAL_RESPONSE are now identical.
+- Also fixed the stale template name (`nexora_initial_response`) in the activity-log preview text.
+
+**2. "Lead could not be updated" when editing a Google-Sheets-imported lead**
+- Symptom: Save Changes fails; network response `fieldErrors: { guestCount: ["Too small: expected
+  number to be >0"], assignedToId: ["Invalid input: expected string, received null"] }`.
+- Root cause: the edit form sends `guestCount: null` (empty field) and `assignedToId: null`
+  ("Unassigned"), but the Zod `emptyToUndefined` preprocessor in `lib/validations/lead.ts` only
+  mapped `''`→undefined, not `null` — so `null` reached `.positive()`/`.string()` and failed.
+- Fix: one-line central change — `emptyToUndefined` now treats both `''` and `null` as "not
+  provided". Applies to every optional lead field (guestCount, assignedToId, email, eventDate,
+  budgets, notes, campaignId, sourceTab), fixing both edit and create for null-valued fields.
+
+**Verified:** `tsc --noEmit` shows only the same 14 lines of pre-existing errors (seed/auth files,
+untouched); both edited files compile clean. Committed and deployed to Railway.
+
+---
+
 ## Production gaps (Railway) — not yet fixed
 - `OPENAI_API_KEY` on the **nexora** service = placeholder — AI proposal generation non-functional.
   (Note: the **helpful-insight** calling service has a working `OPENAI_API_KEY` — that's a separate

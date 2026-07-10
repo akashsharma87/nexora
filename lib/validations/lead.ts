@@ -1,7 +1,10 @@
 import { EventType, LeadSource, LeadStage } from '@prisma/client'
 import { z } from 'zod'
 
-const emptyToUndefined = (value: unknown) => (value === '' ? undefined : value)
+// Treat both '' (empty text inputs) and null as "not provided". The lead edit form sends
+// `null` for a cleared Guest Count and for the "Unassigned" option; without normalising null
+// here those hit .positive()/.string() and fail validation ("Lead could not be updated").
+const emptyToUndefined = (value: unknown) => (value === '' || value === null ? undefined : value)
 
 export const leadCreateSchema = z.object({
   name: z.string().min(2),

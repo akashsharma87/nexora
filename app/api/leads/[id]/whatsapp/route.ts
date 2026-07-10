@@ -3,7 +3,15 @@ import { z } from 'zod'
 
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
-import { sendTemplateMessage, sendSessionMessage, addWatiContact, WATI_TEMPLATES } from '@/lib/whatsapp'
+import { generateEnquiryLabel } from '@/lib/openai'
+import {
+  sendTemplateMessage,
+  sendSessionMessage,
+  addWatiContact,
+  WATI_TEMPLATES,
+  nurtureTrack,
+  buildNurtureHook,
+} from '@/lib/whatsapp'
 
 const whatsappSchema = z.object({
   message: z.string().min(1),
@@ -42,14 +50,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (parsed.data.mode === 'template') {
     // Ensure contact exists in Wati before sending first template
     await addWatiContact(parsed.data.phone, lead.name)
-    // Send the approved Wati template — works for cold leads who've never messaged
-    // Template variables: {{1}} = lead name, {{2}} = hotel name
+    // The approved `nexora_initial_responses` template has FOUR variables — must match exactly or
+    // Wati rejects it ("template cannot have typos or blank text"). Same 4-var family the nurture
+    // flow uses (see lib/automation.ts): {{1}}=name, {{2}}=property, {{3}}=enquiry label, {{4}}=hook.
+    const track = nurtureTrack(lead.sourceTab)
+    const hook = buildNurtureHook(track)
+    const label = await generateEnquiryLabel({
+      sourceTab: lead.sourceTab,
+      eventType: String(lead.eventType),
+      isStay: track === 'STAY',
+    })
     result = await sendTemplateMessage(
       parsed.data.phone,
       WATI_TEMPLATES.INITIAL_RESPONSE,
       [
         { name: '1', value: lead.name },
         { name: '2', value: lead.property?.name ?? 'our venue' },
+        { name: '3', value: label },
+        { name: '4', value: hook },
       ],
       `nexora_lead_${id}`
     )
@@ -63,7 +81,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const preview = parsed.data.mode === 'template'
-    ? `Template message sent (nexora_initial_response) to ${lead.name}`
+    ? `Template message sent (${WATI_TEMPLATES.INITIAL_RESPONSE}) to ${lead.name}`
     : parsed.data.message.slice(0, 80)
 
   const activity = await prisma.leadActivity.create({
