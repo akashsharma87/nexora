@@ -46,3 +46,35 @@ export const campaignBenchmarks: Record<string, CampaignBenchmark> = {
     bookingConversionMin: 32, bookingConversionMax: 45,
   },
 }
+
+// Fingerprints of the 6 fabricated "starter kit" campaigns that lib/seeds/property-defaults.ts
+// used to auto-create (forced to ACTIVE, fake budgets lifted from the sales deck) on every
+// property before a real Meta/Google Ads sync or manual campaign ever existed. The seeder no
+// longer creates these, but properties seeded before that fix still have the rows in Postgres —
+// this lets every campaign-listing query hide them without a destructive DB migration.
+const LEGACY_SEED_CAMPAIGN_SIGNATURES = new Set([
+  'SOCIAL_EVENTS:80000:Social Events — Weddings & Engagements',
+  'CORPORATE_EVENTS:70000:Corporate Events — Conferences & Launches',
+  'BIRTHDAY_SOCIAL:20000:Birthday & Social Celebrations',
+  'PROMOTIONAL_EVENTS:15000:Promotional Events — Exhibitions & Shows',
+  'ENTERTAINMENT_EVENTS:10000:Entertainment Events — Live Music & Comedy',
+  'SEASONAL_THEMATIC:5000:Seasonal & Thematic — Festivals & Brunches',
+])
+
+export function isLegacySeedCampaign(campaign: {
+  externalId?: string | null
+  type: string
+  name: string
+  // Decimal fields come through as Prisma.Decimal server-side, string|number once
+  // JSON-serialized to the client — accept either without importing the Decimal type here.
+  budgetAmount: unknown
+  leadsGenerated: number
+  bookingsCount: number
+  spentAmount: unknown
+}): boolean {
+  if (campaign.externalId) return false
+  if (campaign.leadsGenerated !== 0 || campaign.bookingsCount !== 0) return false
+  if (Number(campaign.spentAmount as string | number) !== 0) return false
+  const signature = `${campaign.type}:${Number(campaign.budgetAmount as string | number)}:${campaign.name}`
+  return LEGACY_SEED_CAMPAIGN_SIGNATURES.has(signature)
+}

@@ -11,7 +11,6 @@ export async function seedPropertyDefaults(
   await Promise.all([
     seedTemplates(prisma, propertyId),
     seedPlatforms(prisma, propertyId),
-    seedCampaigns(prisma, propertyId),
     seedMogulUsers(prisma, propertyId),
   ])
 }
@@ -345,86 +344,8 @@ async function seedPlatforms(prisma: PrismaClient, propertyId: string) {
   })
 }
 
-// ---------------------------------------------------------------------------
-// Campaigns — one for each of the 6 PRD campaign types
-// ---------------------------------------------------------------------------
-async function seedCampaigns(prisma: PrismaClient, propertyId: string) {
-  const existing = await prisma.campaign.count({ where: { propertyId } })
-  if (existing > 0) return
-
-  const now = new Date()
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-
-  const campaigns = [
-    {
-      name: 'Social Events — Weddings & Engagements',
-      type: 'SOCIAL_EVENTS' as const,
-      platforms: ['META', 'GOOGLE'] as const,
-      budgetAmount: 80000,
-      targetAudience: { ageMin: 24, ageMax: 56, radius: '30 km', segments: ['HNI', 'newly engaged', 'wedding planners'] },
-      keywords: ['wedding venue', 'banquet hall for wedding', 'marriage hall', 'wedding reception venue', 'engagement ceremony venue'],
-      notes: 'Benchmark CPL: ₹150–450 (Meta), ₹200–600 (Google). Target 28–40% booking conversion.',
-    },
-    {
-      name: 'Corporate Events — Conferences & Launches',
-      type: 'CORPORATE_EVENTS' as const,
-      platforms: ['META', 'GOOGLE', 'LINKEDIN'] as const,
-      budgetAmount: 70000,
-      targetAudience: { ageMin: 22, ageMax: 65, companySize: '200+ employees', roles: ['CEO', 'Director', 'HR Manager'] },
-      keywords: ['conference venue', 'corporate event venue', 'product launch venue', 'board meeting venue', 'corporate banquet hall'],
-      notes: 'Benchmark CPL: ₹300–700. Target 40–65% booking conversion. LinkedIn works well for B2B.',
-    },
-    {
-      name: 'Birthday & Social Celebrations',
-      type: 'BIRTHDAY_SOCIAL' as const,
-      platforms: ['META', 'GOOGLE'] as const,
-      budgetAmount: 20000,
-      targetAudience: { ageMin: 20, ageMax: 54, segments: ['family decision-makers', 'birthday planners', 'anniversary celebrations'] },
-      keywords: ['birthday party venue', 'birthday hall booking', 'anniversary venue', 'retirement party venue', 'private dining venue'],
-      notes: 'Benchmark CPL: ₹80–200 (Meta), ₹120–300 (Google). Target 25–35% conversion.',
-    },
-    {
-      name: 'Promotional Events — Exhibitions & Shows',
-      type: 'PROMOTIONAL_EVENTS' as const,
-      platforms: ['META', 'INSTAGRAM'] as const,
-      budgetAmount: 15000,
-      targetAudience: { ageMin: 20, ageMax: 54, segments: ['arts professionals', 'media industry', 'fashion industry', 'food & beverage'] },
-      keywords: ['event space rental', 'exhibition hall', 'fashion show venue', 'art exhibition venue', 'food festival venue'],
-      notes: 'Niche but high-value. Focus on Instagram for visual industries. No fixed CPL benchmark.',
-    },
-    {
-      name: 'Entertainment Events — Live Music & Comedy',
-      type: 'ENTERTAINMENT_EVENTS' as const,
-      platforms: ['META', 'INSTAGRAM'] as const,
-      budgetAmount: 10000,
-      targetAudience: { ageMin: 20, ageMax: 54, segments: ['live music fans', 'comedy show audience', 'entertainment seekers'] },
-      keywords: ['live music venue', 'comedy show venue', 'event hall for concerts', 'entertainment venue booking'],
-      notes: 'Benchmark CPL: ₹100–300 (Meta), ₹150–400 (Google). Target 22–35% conversion.',
-    },
-    {
-      name: 'Seasonal & Thematic — Festivals & Brunches',
-      type: 'SEASONAL_THEMATIC' as const,
-      platforms: ['META', 'GOOGLE'] as const,
-      budgetAmount: 5000,
-      targetAudience: { ageMin: 20, ageMax: 54, segments: ['frequent travellers', 'food lovers', 'festival celebrators'] },
-      keywords: ['new year party venue', 'diwali event venue', 'christmas party venue', 'monsoon brunch venue', 'festive celebration hall'],
-      notes: 'Benchmark CPL: ₹200–500 (Meta), ₹250–600 (Google). Target 32–45% conversion. Run 4–6 weeks before each festival.',
-    },
-  ]
-
-  await prisma.campaign.createMany({
-    data: campaigns.map((c) => ({
-      propertyId,
-      name: c.name,
-      type: c.type,
-      platforms: c.platforms,
-      budgetAmount: c.budgetAmount,
-      targetAudience: c.targetAudience,
-      keywords: c.keywords,
-      notes: c.notes,
-      startDate: startOfMonth,
-      status: 'ACTIVE',
-    })),
-    skipDuplicates: true,
-  })
-}
+// Note: campaigns are intentionally NOT auto-seeded. Every Campaign row should be either a
+// real sync from Meta/Google Ads (see app/api/integrations/{meta,google-ads}/sync-campaigns)
+// or a campaign a user explicitly creates. A fixed 6-template starter kit used to be seeded
+// here with fabricated budgets/benchmarks from the sales deck and forced to ACTIVE — every
+// property showed the same 6 "active" campaigns with 0 real leads/spend forever. Removed.

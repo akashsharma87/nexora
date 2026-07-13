@@ -4,7 +4,9 @@ import { prisma } from '@/lib/db'
 import { seedPropertyDefaults } from '@/lib/seeds/property-defaults'
 
 // POST /api/setup/seed-defaults
-// Populates default templates, platforms, and campaigns for the current user's property.
+// Populates default WhatsApp templates, platform listings, and Internet Moguls staff seats for
+// the current user's property. Campaigns are NOT seeded — those only come from a real Meta/
+// Google Ads sync or a campaign a user creates explicitly (see lib/seeds/property-defaults.ts).
 // Safe to call multiple times — all seed functions are idempotent (skip if records already exist).
 export async function POST() {
   const { error, session } = await requireSession()

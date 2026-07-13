@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { AlertCircle, CheckCircle, ExternalLink, Eye, Loader2, Plus, TrendingUp } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
-import { formatCurrency, formatDate, platformLabels } from '@/lib/format'
+import { formatCurrency, formatDate, platformLabels, platformStatusLabels } from '@/lib/format'
 
 const PLATFORM_URLS: Record<string, string> = {
   WEDMEGOOD: 'https://www.wedmegood.com/vendor/signup',
@@ -111,7 +111,7 @@ export default function PlatformsPage() {
                     <p className="text-xs text-muted-foreground mt-0.5">{platform.tier ?? 'Standard'} Plan</p>
                   </div>
                   <span className={`shrink-0 px-2 py-1 rounded text-xs font-semibold ${isActive ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : isPending ? 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' : 'bg-muted text-muted-foreground'}`}>
-                    {platform.status.replaceAll('_', ' ')}
+                    {platformStatusLabels[platform.status] ?? platform.status.replaceAll('_', ' ')}
                   </span>
                 </div>
 

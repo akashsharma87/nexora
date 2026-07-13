@@ -77,8 +77,47 @@ const CPL_STATUS_CHIP: Record<string, { label: string; className: string }> = {
   'no-data': { label: 'No data', className: 'bg-muted text-muted-foreground' },
 }
 
+type ActivityData = {
+  calls: {
+    placed: number
+    byStatus: { status: string; count: number }[]
+    byOutcome: { outcome: string; count: number }[]
+  }
+  whatsapp: {
+    nurtureSent: { templateType: string; count: number }[]
+    postCallSent: number
+  }
+  revenue: {
+    pipelineValue: number
+    bookedRevenue: number
+  }
+}
+
+const CALL_OUTCOME_LABELS: Record<string, string> = {
+  QUALIFIED: 'Qualified',
+  NOT_QUALIFIED: 'Not Interested',
+  CALLBACK: 'Callback Requested',
+  WRONG_NUMBER: 'Wrong Number',
+  VOICEMAIL: 'Voicemail',
+  UNKNOWN: 'Incomplete',
+}
+
+const TEMPLATE_TYPE_LABELS: Record<string, string> = {
+  INITIAL_RESPONSE: 'Initial Response',
+  NURTURE_DAY1: 'Day 1 Nurture',
+  NURTURE_DAY3: 'Day 3 Nurture',
+  NURTURE_DAY5: 'Day 5 Nurture',
+  NURTURE_DAY7: 'Day 7 Nurture',
+  PROPOSAL_FOLLOWUP: 'Proposal Follow-Up',
+  POST_EVENT_DAY3: 'Post-Event (Day 3)',
+  POST_EVENT_DAY30: 'Post-Event (Day 30)',
+  POST_EVENT_DAY90: 'Post-Event (Day 90)',
+  BROADCAST: 'Broadcast',
+  CUSTOM: 'Custom',
+}
+
 export default function AnalyticsPage() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'funnel' | 'campaigns' | 'revenue'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'funnel' | 'campaigns' | 'revenue' | 'activity'>('overview')
   const [dashboardQuery, funnelQuery, sourcesQuery] = useQueries({
     queries: [
       { queryKey: ['dashboard'], queryFn: () => apiGet<DashboardData>('/api/analytics/dashboard') },
@@ -91,6 +130,12 @@ export default function AnalyticsPage() {
     queryKey: ['analytics-attribution'],
     queryFn: () => apiGet<{ attribution: AttributionRow[]; sources: SourceRow[] }>('/api/analytics/attribution'),
     enabled: activeTab === 'campaigns',
+  })
+
+  const activityQuery = useQuery({
+    queryKey: ['analytics-activity'],
+    queryFn: () => apiGet<ActivityData>('/api/analytics/activity'),
+    enabled: activeTab === 'activity',
   })
 
   const dashboard = dashboardQuery.data
@@ -138,6 +183,7 @@ export default function AnalyticsPage() {
             ['funnel', 'Lead Funnel'],
             ['campaigns', 'Campaigns'],
             ['revenue', 'Revenue'],
+            ['activity', 'Activity'],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -325,6 +371,88 @@ export default function AnalyticsPage() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'activity' && (
+          <div className="space-y-6">
+            {activityQuery.isLoading && (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-6 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading activity...
+              </div>
+            )}
+
+            {activityQuery.data && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-card rounded-lg border border-border p-6">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-2">AI Calls Placed (Priya)</h3>
+                    <p className="text-3xl font-bold text-foreground">{activityQuery.data.calls.placed}</p>
+                  </div>
+                  <div className="bg-card rounded-lg border border-border p-6">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-2">WhatsApp Nurture Sent</h3>
+                    <p className="text-3xl font-bold text-foreground">
+                      {activityQuery.data.whatsapp.nurtureSent.reduce((sum, row) => sum + row.count, 0)}
+                    </p>
+                  </div>
+                  <div className="bg-card rounded-lg border border-border p-6">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-2">Revenue Pipeline (Open Leads)</h3>
+                    <p className="text-3xl font-bold text-foreground">{formatCurrency(activityQuery.data.revenue.pipelineValue)}</p>
+                  </div>
+                  <div className="bg-card rounded-lg border border-border p-6">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-2">Booked Revenue (Accepted)</h3>
+                    <p className="text-3xl font-bold text-foreground">{formatCurrency(activityQuery.data.revenue.bookedRevenue)}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-card rounded-lg border border-border overflow-hidden">
+                    <div className="p-4 border-b border-border">
+                      <h3 className="font-semibold text-foreground">AI Call Outcomes</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">Completed calls only — outcome is set when Priya concludes a call.</p>
+                    </div>
+                    {activityQuery.data.calls.byOutcome.length === 0 ? (
+                      <p className="p-6 text-sm text-muted-foreground">No completed calls yet.</p>
+                    ) : (
+                      <div className="p-4 space-y-3">
+                        {activityQuery.data.calls.byOutcome.map((row) => (
+                          <div key={row.outcome} className="flex items-center justify-between text-sm">
+                            <span className="text-foreground">{CALL_OUTCOME_LABELS[row.outcome] ?? row.outcome}</span>
+                            <span className="font-semibold text-foreground">{row.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-card rounded-lg border border-border overflow-hidden">
+                    <div className="p-4 border-b border-border">
+                      <h3 className="font-semibold text-foreground">WhatsApp Messages Sent</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">Delivered sends only (status = SENT), by sequence stage.</p>
+                    </div>
+                    {activityQuery.data.whatsapp.nurtureSent.length === 0 && activityQuery.data.whatsapp.postCallSent === 0 ? (
+                      <p className="p-6 text-sm text-muted-foreground">No WhatsApp messages sent yet.</p>
+                    ) : (
+                      <div className="p-4 space-y-3">
+                        {activityQuery.data.whatsapp.nurtureSent.map((row) => (
+                          <div key={row.templateType} className="flex items-center justify-between text-sm">
+                            <span className="text-foreground">{TEMPLATE_TYPE_LABELS[row.templateType] ?? row.templateType}</span>
+                            <span className="font-semibold text-foreground">{row.count}</span>
+                          </div>
+                        ))}
+                        {activityQuery.data.whatsapp.postCallSent > 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-foreground">Post-Call (after Priya's call)</span>
+                            <span className="font-semibold text-foreground">{activityQuery.data.whatsapp.postCallSent}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -1,28 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { canManage, requireSession } from '@/lib/access'
+import { isLegacySeedCampaign } from '@/lib/campaign-benchmarks'
 import { prisma } from '@/lib/db'
-import { seedPropertyDefaults } from '@/lib/seeds/property-defaults'
 import { campaignCreateSchema } from '@/lib/validations/campaign'
 
 export async function GET() {
   const { error, session } = await requireSession()
   if (error) return error
 
-  let campaigns = await prisma.campaign.findMany({
+  const campaigns = await prisma.campaign.findMany({
     where: { propertyId: session.user.propertyId },
     orderBy: { startDate: 'desc' },
   })
 
-  if (campaigns.length === 0 && session.user.propertyId) {
-    await seedPropertyDefaults(prisma, session.user.propertyId)
-    campaigns = await prisma.campaign.findMany({
-      where: { propertyId: session.user.propertyId },
-      orderBy: { startDate: 'desc' },
-    })
-  }
-
-  return NextResponse.json({ campaigns })
+  // Only real campaigns: synced from Meta/Google Ads (externalId set) or created explicitly by
+  // a user. Hides leftover fabricated "starter kit" rows from properties seeded before this was
+  // fixed — see isLegacySeedCampaign.
+  return NextResponse.json({ campaigns: campaigns.filter((c) => !isLegacySeedCampaign(c)) })
 }
 
 export async function POST(request: NextRequest) {

@@ -2,16 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
-import { campaignBenchmarks } from '@/lib/campaign-benchmarks'
+import { campaignBenchmarks, isLegacySeedCampaign } from '@/lib/campaign-benchmarks'
 
 export async function GET(_request: NextRequest) {
   const { error, session } = await requireSession()
   if (error) return error
 
-  const campaigns = await prisma.campaign.findMany({
-    where: { propertyId: session.user.propertyId },
-    orderBy: { createdAt: 'desc' },
-  })
+  const campaigns = (
+    await prisma.campaign.findMany({
+      where: { propertyId: session.user.propertyId },
+      orderBy: { createdAt: 'desc' },
+    })
+  ).filter((c) => !isLegacySeedCampaign(c))
 
   const sourceGroups = await prisma.lead.groupBy({
     by: ['source'],

@@ -42,6 +42,16 @@ export const platformLabels: Record<string, string> = {
   JUSTDIAL: 'JustDial',
 }
 
+// Display-only relabeling of PlatformStatus — "PENDING_SETUP" reads as a stalled/broken
+// integration to a GM; "Upcoming Soon" is honest (the agency hasn't onboarded this listing
+// yet) without sounding like an error. The underlying enum value is unchanged everywhere else.
+export const platformStatusLabels: Record<string, string> = {
+  ACTIVE: 'Active',
+  PENDING_SETUP: 'Upcoming Soon',
+  INACTIVE: 'Inactive',
+  SUSPENDED: 'Suspended',
+}
+
 // Takes hours-since-some-event and renders "Xh" under a day, "Xd" or "Xd Yh" once
 // it crosses 24h — never shows raw triple-digit hour counts like "122h".
 export function formatHoursAgo(hours: number): string {

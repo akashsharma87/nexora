@@ -1088,6 +1088,80 @@ is missing one) — the template being approved doesn't help if there's no numbe
 
 ---
 
+## Session 18 — July 13, 2026
+
+### Removed fabricated Campaigns data, relabeled Platforms status, added real Analytics activity tab
+
+User flagged that the Campaigns page showed the same 6 "ACTIVE" campaigns with 0 leads/spend for
+every property — looking hardcoded/fake. Root cause: `lib/seeds/property-defaults.ts` auto-created
+those 6 campaigns (fabricated budgets/benchmarks lifted straight from the sales pitch deck,
+`nexora_banquet_platform.pdf`) and forced `status: ACTIVE` the moment any property had zero
+campaigns — both at registration and defensively on first page view of Campaigns/Platforms/
+WhatsApp templates. User's direction: "we will only show fetched real campaigns from meta itself,
+not hardcoded."
+
+**Found the real fix was mostly already built:** `lib/meta-ads.ts` / `lib/google-ads.ts` +
+`app/api/integrations/{meta,google-ads}/sync-campaigns` already do a full OAuth + real
+campaign+spend+lead sync from Meta/Google Ads into the `Campaign` table (upserted by
+`externalId: "meta:<id>"` / `"google_ads:<id>"`), wired to a "Sync Campaigns" button on
+Settings → Integrations. This was never the problem — the fake seeded rows just sat alongside it.
+
+**Changes:**
+- `lib/seeds/property-defaults.ts` — deleted `seedCampaigns()` entirely; campaigns are no longer
+  auto-seeded for new properties. A property now starts with zero campaigns until a real
+  Meta/Google Ads sync runs or a user manually creates one via the existing "Create Campaign" form.
+- `app/api/campaigns/route.ts` — removed the "seed on empty view" fallback that used to backfill
+  the same 6 fake campaigns the first time anyone loaded the page with zero rows.
+- `lib/campaign-benchmarks.ts` — added `isLegacySeedCampaign()`, a signature match (exact name +
+  type + budget + zero leads/bookings/spend + no `externalId`) against the 6 known fabricated
+  rows. Applied as a read-time filter in `app/api/campaigns/route.ts` and both
+  `app/api/analytics/{attribution,sources}/route.ts` — hides the leftover junk on properties
+  seeded before this fix (e.g. "Nava") without a destructive DB write. The `campaignBenchmarks`
+  CPL/conversion reference table itself is untouched — that's real benchmark data used to
+  evaluate actual campaigns, not fake campaign rows.
+- `app/campaigns/page.tsx` — fixed the status badge, which was hardcoded to always render green
+  regardless of the campaign's real status; now maps DRAFT/ACTIVE/PAUSED/COMPLETED to distinct
+  colors. Added an empty state pointing to Settings → Integrations when a property has zero real
+  campaigns.
+
+**Platforms — display-only fix, user asked specifically for this:** `PENDING_SETUP` now renders as
+"Upcoming Soon" (`lib/format.ts` → `platformStatusLabels`) in `app/platforms/page.tsx`,
+`app/platforms/[id]/page.tsx` (both the subtitle line and the status `<select>` options). The
+underlying enum value, seeding, and all status logic are unchanged — this was purely about the
+word "PENDING SETUP" reading like a stalled/broken integration to a GM.
+
+**Analytics — new "Activity" tab** (`app/analytics/page.tsx` + new
+`app/api/analytics/activity/route.ts`), showing real operational data the user asked for
+specifically: how much Priya (AI calling) and WhatsApp automation have actually done for this
+property, not just lead-funnel/campaign-spend numbers:
+- AI calls placed (`AiCall` count, status not in PENDING/CANCELLED) + breakdown by outcome
+  (QUALIFIED/CALLBACK/etc., completed calls only).
+- WhatsApp nurture messages actually delivered (`ScheduledMessage` where `status: SENT`, grouped
+  by `templateType`) + post-call messages sent (`LeadActivity` where `type: WHATSAPP_SENT` and
+  `metadata.templateType = POST_CALL` — the JSON field `sendPostCallWhatsApp` in `lib/automation.ts`
+  already writes on success).
+- Revenue pipeline (sum of `budgetMax` across open leads) and booked revenue (sum of `amount` on
+  ACCEPTED proposals).
+- **Known gap, not counted:** task-assignment WhatsApp notifications (`notifyTaskAssigned`) fire
+  synchronously and don't log any `LeadActivity` row — there's no persisted record to count sends
+  from, so this endpoint deliberately doesn't report a number for it rather than showing a
+  guaranteed-always-zero counter.
+
+**Not touched, out of scope for this session:** the "Last 30 Days" and "Export" buttons at the top
+of the Analytics page are still dead (no click handler) — the user's ask was specifically about
+showing real activity data, which the 4 existing tabs' backing routes already did (verified by
+reading all of them) except for this new activity view.
+
+**Verified:** `npx tsc --noEmit` — same pre-existing errors only (`lib/auth.ts`, `prisma/seed.ts`,
+`app/api/seed/route.ts`), untouched by this session. `npx next build` — clean, `/api/analytics/
+activity` registers correctly. **Not tested against a live browser** — Docker Desktop wasn't
+running locally so there was no dev Postgres to hit; correctness was checked by reading every
+query and the Prisma schema fields involved, not by clicking through the UI. Worth a manual check
+in production after deploy, especially the new Activity tab's numbers on a property with real
+AI-call/WhatsApp history.
+
+---
+
 ## Production gaps (Railway) — not yet fixed
 - Nurture-template (`_day1/day3/day5/day7/initial_responses`) `{{2}}`/`{{3}}` variable-order
   inconsistency across templates (Session 17) — needs a live test send or a template resubmission

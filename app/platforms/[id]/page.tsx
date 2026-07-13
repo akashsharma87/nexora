@@ -8,7 +8,7 @@ import toast from 'react-hot-toast'
 import { ArrowLeft, CheckSquare, Loader2, Save, Square } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
-import { formatCurrency, formatDate, platformLabels } from '@/lib/format'
+import { formatCurrency, formatDate, platformLabels, platformStatusLabels } from '@/lib/format'
 
 type ChecklistItem = { label: string; done: boolean }
 
@@ -129,7 +129,7 @@ export default function PlatformDetailPage() {
           <>
             <div>
               <h1 className="text-4xl font-bold text-foreground">{platformLabels[platform.platform] ?? platform.platform}</h1>
-              <p className="mt-1 text-muted-foreground">{platform.tier ?? 'Standard'} · {platform.status.replaceAll('_', ' ')}</p>
+              <p className="mt-1 text-muted-foreground">{platform.tier ?? 'Standard'} · {platformStatusLabels[platform.status] ?? platform.status.replaceAll('_', ' ')}</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -162,7 +162,7 @@ export default function PlatformDetailPage() {
                   <select name="status" defaultValue={platform.status} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
                     {['ACTIVE', 'INACTIVE', 'PENDING_SETUP', 'SUSPENDED'].map((status) => (
                       <option key={status} value={status}>
-                        {status}
+                        {platformStatusLabels[status] ?? status}
                       </option>
                     ))}
                   </select>

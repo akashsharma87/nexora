@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { requireSession } from '@/lib/access'
+import { isLegacySeedCampaign } from '@/lib/campaign-benchmarks'
 import { prisma } from '@/lib/db'
 
 export async function GET() {
@@ -13,10 +14,12 @@ export async function GET() {
     _count: { source: true },
   })
 
-  const campaigns = await prisma.campaign.findMany({
-    where: { propertyId: session.user.propertyId },
-    orderBy: { budgetAmount: 'desc' },
-  })
+  const campaigns = (
+    await prisma.campaign.findMany({
+      where: { propertyId: session.user.propertyId },
+      orderBy: { budgetAmount: 'desc' },
+    })
+  ).filter((c) => !isLegacySeedCampaign(c))
 
   const proposals = await prisma.proposal.findMany({
     where: {

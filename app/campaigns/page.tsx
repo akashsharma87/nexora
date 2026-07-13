@@ -30,6 +30,13 @@ async function fetchCampaigns(): Promise<{ campaigns: Campaign[] }> {
   return response.json()
 }
 
+const statusBadgeClasses: Record<string, string> = {
+  ACTIVE: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+  DRAFT: 'bg-muted text-muted-foreground',
+  PAUSED: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  COMPLETED: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+}
+
 const campaignBudgets: Record<string, number> = {
   SOCIAL_EVENTS: 80000,
   CORPORATE_EVENTS: 70000,
@@ -143,6 +150,19 @@ export default function CampaignsPage() {
         )}
         {isError && <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-6 text-destructive">Could not load campaigns.</div>}
 
+        {!isLoading && !isError && campaigns.length === 0 && (
+          <div className="rounded-lg border border-dashed border-border bg-card p-8 text-center text-muted-foreground">
+            <p className="font-medium text-foreground">No campaigns yet.</p>
+            <p className="mt-1 text-sm">
+              Connect Meta or Google Ads under{' '}
+              <Link href="/settings/integrations" className="text-primary hover:underline">
+                Settings → Integrations
+              </Link>{' '}
+              and sync to pull in real campaigns, or create one manually above.
+            </p>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {campaigns.map((campaign) => {
             const budget = Number(campaign.budgetAmount)
@@ -158,7 +178,7 @@ export default function CampaignsPage() {
                       <Link href={`/campaigns/${campaign.id}`} className="text-lg font-semibold text-foreground hover:underline">
                         {campaign.name}
                       </Link>
-                      <span className="px-2 py-1 rounded text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">{campaign.status}</span>
+                      <span className={`px-2 py-1 rounded text-xs font-semibold ${statusBadgeClasses[campaign.status] ?? 'bg-muted text-muted-foreground'}`}>{campaign.status}</span>
                     </div>
                     <p className="text-sm text-muted-foreground">{eventTypeLabels[campaign.type] ?? campaign.type} · {campaign.platforms.join(' + ')}</p>
                   </div>
