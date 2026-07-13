@@ -10,6 +10,55 @@ import {
 } from '@/lib/whatsapp'
 import { generateEnquiryLabel } from '@/lib/openai'
 
+// Internal staff notification, not lead-facing — fired whenever a Task is created with an
+// assignee, from both manual task creation (app/api/leads/[id]/tasks/route.ts) and Priya's
+// AI-call follow-up tasks (app/api/ai-calls/[id]/route.ts). Silently no-ops if the assignee has
+// no phone on file (auto-provisioned mogul-1/2/3 seats start with none — see
+// lib/seeds/property-defaults.ts — until the person adds one from Settings → My Profile) so a
+// missing number never blocks task creation, it just means that person gets no WhatsApp ping.
+export async function notifyTaskAssigned(params: {
+  assigneeId: string
+  taskTitle: string
+  leadName?: string | null
+  dueDate?: Date | null
+}): Promise<{ sent: boolean; reason?: string }> {
+  const assignee = await prisma.user.findUnique({
+    where: { id: params.assigneeId },
+    select: { name: true, phone: true },
+  })
+  if (!assignee?.phone) return { sent: false, reason: 'no_phone' }
+
+  const context = params.leadName || 'a lead'
+  const dueLabel = params.dueDate
+    ? params.dueDate.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+    : null
+
+  const parameters = [
+    { name: '1', value: assignee.name },
+    { name: '2', value: params.taskTitle },
+    { name: '3', value: context },
+  ]
+
+  let result = await sendTemplateMessage(
+    assignee.phone,
+    WATI_TEMPLATES.TASK_ASSIGNED,
+    parameters,
+    `nx_task_${Date.now()}`
+  )
+  // Staff won't usually have an open 24-hr session window with the WABA number either — same
+  // fallback shape as sendPostCallWhatsApp, kept for when the template isn't approved yet.
+  if (!result.success) {
+    result = await sendSessionMessage(
+      assignee.phone,
+      `Hi ${assignee.name}, a new task has been assigned to you: "${params.taskTitle}" (${context})${
+        dueLabel ? ` — due ${dueLabel}` : ''
+      }.`
+    )
+  }
+
+  return { sent: result.success, reason: result.success ? undefined : result.error }
+}
+
 // Safety ceiling shared by both auto-triggers below: a bulk sheet sync or CSV import must never
 // fire more than this many real calls/WhatsApp sequences per property per rolling hour, even
 // with its toggle on — a sync importing hundreds of historical leads should not blast all of

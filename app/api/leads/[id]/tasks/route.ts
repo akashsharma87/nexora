@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
+import { notifyTaskAssigned } from '@/lib/automation'
 
 const taskCreateSchema = z.object({
   title: z.string().min(1),
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const lead = await prisma.lead.findFirst({
     where: { id, propertyId: session.user.propertyId },
-    select: { id: true },
+    select: { id: true, name: true },
   })
 
   if (!lead) {
@@ -83,6 +84,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         : `Task created: ${parsed.data.title}`,
     },
   })
+
+  if (task.assignedTo) {
+    await notifyTaskAssigned({
+      assigneeId: task.assignedTo.id,
+      taskTitle: task.title,
+      leadName: lead.name,
+      dueDate: task.dueDate,
+    })
+  }
 
   return NextResponse.json({ task }, { status: 201 })
 }

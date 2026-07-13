@@ -18,7 +18,7 @@ export async function GET() {
 
   const moguls = await prisma.user.findMany({
     where: { staffTag: { not: null }, properties: { some: { propertyId: session.user.propertyId } } },
-    select: { id: true, name: true, email: true, staffTag: true, tempCredential: true, isActive: true },
+    select: { id: true, name: true, email: true, staffTag: true, tempCredential: true, isActive: true, phone: true },
     orderBy: { staffTag: 'asc' },
   })
 
@@ -28,6 +28,7 @@ export async function GET() {
     email: m.email,
     staffTag: m.staffTag,
     isActive: m.isActive,
+    phone: m.phone,
     password: m.tempCredential ? decryptCredential(m.tempCredential) : null,
   }))
 

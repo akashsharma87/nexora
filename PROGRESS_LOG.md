@@ -976,10 +976,123 @@ untouched); both edited files compile clean. Committed and deployed to Railway.
 
 ---
 
+## Session 16 — July 13, 2026
+
+### Task-assignment WhatsApp notifications + missing-phone nudge
+
+User asked for task assignees to get pinged on WhatsApp, and — since mogul-1/2/3 seats are
+auto-created with no phone number (unlike owner-added users, who supply one at creation in
+Settings → Users) — a way for those seats to be reminded to add one.
+
+**`lib/whatsapp.ts`:** new `WATI_TEMPLATES.TASK_ASSIGNED` (`nexora_task_assigned`, env-overridable
+like every other template here). **Not confirmed approved in the Wati dashboard** — this is a
+guessed name, same situation `nexora_initial_response` was in before Session 5 fixed it to match
+the real approved name. Must be created + approved in Wati (Templates → New Template, 3 vars:
+{{1}} assignee name, {{2}} task title, {{3}} lead/context name) before real sends will succeed;
+until then, sends will fail the template call and fall back to the free-text session message
+(only delivers if that person has messaged the WABA number within 24 hrs — unlikely for internal
+staff, so in practice nothing will land until the template is approved).
+
+**`lib/automation.ts`:** new `notifyTaskAssigned({ assigneeId, taskTitle, leadName, dueDate })` —
+looks up the assignee's `User.phone` (already existed on the schema, nullable), returns
+`{ sent: false, reason: 'no_phone' }` without erroring if it's null, otherwise sends the template
+(session-message fallback same as `sendPostCallWhatsApp`). No property-level toggle gates this —
+unlike lead nurture/AI-calling, this is an internal team notification, not customer-facing
+automation, so `autoWhatsappNurtureEnabled` doesn't apply.
+
+**Wired into both places a `Task` gets created with an assignee:**
+- `app/api/leads/[id]/tasks/route.ts` (manual task creation, any user incl. OWNER/MANAGER/
+  EXECUTIVE or a mogul seat)
+- `app/api/ai-calls/[id]/route.ts` (all 3 of Priya's outcome-driven tasks: QUALIFIED follow-up,
+  CALLBACK, NOT_QUALIFIED close-out) — captured each task's title/due-date in a local variable so
+  the same values used for `prisma.task.create` are passed to the notification without re-reading.
+
+**Missing-phone visibility, two places:**
+- **The person themselves:** `components/dashboard-layout.tsx` (wraps every authenticated page)
+  now renders a dismissed-when-fixed amber banner querying `/api/settings/profile` — "Add your
+  WhatsApp number so you get notified when a task is assigned to you" + a link to Settings. Reuses
+  the exact `['settings-profile']` query key the Settings page already uses, so saving a phone
+  number there invalidates the same cache entry and the banner disappears immediately, no extra
+  wiring needed. Gated on `useSession().status === 'authenticated'` (mirrors
+  `active-project-provider.tsx`'s pattern) so it doesn't fire on `/login`/`/register` — moot anyway
+  since `DashboardLayout` is never mounted there.
+- **OWNER/MANAGER's view of their team:** `/api/settings/mogul-users` now also selects `phone`;
+  the Settings page's "Internet Moguls Team" card shows an inline "No WhatsApp number — task
+  notifications won't reach them" warning under any mogul seat missing one, so an owner doling out
+  work can see at a glance who won't get pinged.
+
+**`app/api/settings/profile` (GET/PATCH) + Settings → My Profile form:** `phone` added to the
+select and to `profileUpdateSchema` (same `emptyToUndefined` shape as every other optional phone
+field in `lib/validations/settings.ts`); `name` loosened from required to optional in the schema
+since the phone-only save path doesn't necessarily touch it (the form still requires it via the
+`required` HTML attribute, so no behavior change there). Form gained a "WhatsApp number" input
+next to the existing name field, plus the same amber warning as the dashboard banner when empty.
+
+**Verified:** `npx tsc --noEmit` — same pre-existing errors only (`lib/auth.ts`,
+`lib/seeds/property-defaults.ts`, `prisma/seed.ts`, `app/api/seed/route.ts`, untouched this
+session). `npx next build` — clean, all routes registered including the unchanged-route-count API
+surface. **Not deployed / not committed** — pending user go-ahead. **Not verified against a real
+Wati send** — blocked on the `nexora_task_assigned` template actually existing and being approved
+in the Wati dashboard; until then this degrades to "no-op" in dev (stub mode logs and returns
+success) and to a failed template call + likely-failed session-message fallback in production.
+
+**Next up:** create + get `nexora_task_assigned` approved in Wati, then confirm one real
+notification lands (assign a manual task to a mogul seat with a test phone number, check WATI
+delivers). No schema migration needed — `User.phone` already existed.
+
+---
+
+## Session 17 — July 13, 2026
+
+### Verified WATI templates live before push/deploy; pushed Session 16 work to Railway
+
+User approved `nexora_task_assigned` in the Wati dashboard and asked to push + deploy, with an
+explicit ask to confirm the post-call template actually works.
+
+**Verified directly against the live Wati API** (`GET /api/v1/getMessageTemplates`, using the
+already-configured `WATI_API_KEY`), not just by trusting the dashboard UI:
+- `nexora_task_assigned` — **APPROVED**, body text matches `lib/automation.ts`'s
+  `notifyTaskAssigned` parameter order exactly ({{1}}=assignee, {{2}}=task title, {{3}}=context).
+- `nexora_post_call` — **APPROVED**, body matches `sendPostCallWhatsApp`'s parameter order exactly
+  ({{1}}=name, {{2}}=property, {{3}}=enquiry label, {{4}}=hook). This is the template Priya's
+  post-call WhatsApp actually depends on — confirmed correct.
+- Confirmed live Railway env vars on the `nexora` service (via `railway variables`) have no
+  `WATI_TEMPLATE_*` overrides set, so production uses the code's hardcoded default names — the
+  approved templates above are what's actually live, not a guess.
+
+**Found while checking (not part of this session's ask, flagged for later, not fixed):** the
+nurture-family templates (`nexora_initial_responses`, `nexora_nurture_day_1`, `_day3`, `_day7`)
+were approved with `{{2}}`/`{{3}}` transposed relative to what `createNurtureSequence` in
+`lib/automation.ts` sends (code sends `{{2}}`=property, `{{3}}`=label; these 4 templates read
+`{{2}}`=label, `{{3}}`=property in their approved body text) — but `nexora_nurture_day5` was
+approved the other way round, matching the code. So the 5 nurture templates are inconsistent
+*with each other*, not just with the code — no single parameter-order fix in `createNurtureSequence`
+covers all 5. **Not fixed this session** — low urgency because the Railway Cron that would fire
+these automatically isn't running yet (see gap below), so no real lead has received one. Needs a
+real test send per template (or resubmission with consistent wording) before the nurture cron is
+turned on. `nexora_post_call` and `nexora_task_assigned` are unaffected — their variables appear in
+strict 1-2-3(-4) reading order in the approved body, so there's no renumbering ambiguity for
+either.
+
+**Also corrected:** stale comment in `lib/whatsapp.ts` on `WATI_TEMPLATES.TASK_ASSIGNED` said the
+name was "not confirmed approved" — updated to reflect the 2026-07-13 approval confirmed above.
+
+**Verified:** `npx tsc --noEmit` — same pre-existing errors only, unchanged. `npx next build` —
+clean, all routes registered. Committed Session 16's work (task-assignment notifications +
+missing-phone nudges) and this session's doc/comment fixes, pushed to `main`, deployed to Railway
+`nexora` service (project `sparkling-courtesy`).
+
+**Still needed for task-assignment notifications to reach anyone in practice:** every mogul seat
+needs a phone number on file (Settings → My Profile / Settings → Internet Moguls Team surfaces who
+is missing one) — the template being approved doesn't help if there's no number to send to.
+
+---
+
 ## Production gaps (Railway) — not yet fixed
-- `OPENAI_API_KEY` on the **nexora** service = placeholder — AI proposal generation non-functional.
-  (Note: the **helpful-insight** calling service has a working `OPENAI_API_KEY` — that's a separate
-  env var on a separate service; the AI voice calls run on real OpenAI credits.)
+- Nurture-template (`_day1/day3/day5/day7/initial_responses`) `{{2}}`/`{{3}}` variable-order
+  inconsistency across templates (Session 17) — needs a live test send or a template resubmission
+  before turning on the Railway Cron nurture drip. Does not affect `nexora_post_call` or
+  `nexora_task_assigned`, both confirmed correct.
 - SMTP not configured — email stubs active
 - Railway Cron job not set up — endpoint `POST /api/cron/process-messages` exists, needs Cron service.
   This is why AI calls/WhatsApp scheduled via the auto-toggles won't fire on their own yet — the
@@ -990,11 +1103,13 @@ untouched); both edited files compile clean. Committed and deployed to Railway.
 **Resolved since first logged:** `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`
 are now set on the nexora service (confirmed this session — the Google Sheets sync authenticates
 and runs in prod; the on-disk `hotel-dashboard-*.json` and local `.env`/`.env.local` keys are stale
-`invalid_grant`, but the Railway env key is live).
+`invalid_grant`, but the Railway env key is live). `OPENAI_API_KEY` on the `nexora` service is now a
+real key, not the placeholder logged earlier (confirmed via `railway variables` in Session 17) —
+AI proposal generation and enquiry-label generation are live. `nexora_task_assigned` WATI template
+is now created + APPROVED (confirmed live via the Wati API in Session 17).
 
 ## What's Stubbed / Not Yet Wired
 - SMTP: `lib/email.ts` ready, needs SMTP env vars
-- OpenAI: `lib/openai.ts` ready with rule-based fallback, needs `OPENAI_API_KEY`
 - Railway Cron: `* * * * *` → `POST /api/cron/process-messages` with `x-cron-secret` header
 - Platform content score checklist — `contentChecklist` schema field not yet added
 

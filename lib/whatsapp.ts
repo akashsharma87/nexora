@@ -161,6 +161,10 @@ export const WATI_TEMPLATES = {
   POST_EVENT_DAY30: process.env.WATI_TEMPLATE_POST_EVENT_DAY30 || 'nexora_post_event_day30',
   POST_EVENT_DAY90: process.env.WATI_TEMPLATE_POST_EVENT_DAY90 || 'nexora_post_event_day90',
   BROADCAST: process.env.WATI_TEMPLATE_BROADCAST || 'nexora_broadcast_general',
+  // Internal staff notification (task assigned to a team member), NOT a customer-facing
+  // template. Confirmed APPROVED in the Wati dashboard 2026-07-13. {{1}}=assignee name,
+  // {{2}}=task title, {{3}}=lead/context name.
+  TASK_ASSIGNED: process.env.WATI_TEMPLATE_TASK_ASSIGNED || 'nexora_task_assigned',
 }
 
 // --- Source-aware nurture helpers -----------------------------------------------------------

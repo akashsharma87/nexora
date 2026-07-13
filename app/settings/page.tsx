@@ -4,7 +4,7 @@ import { FormEvent, useState } from 'react'
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
-import { Building2, Check, Copy, Eye, EyeOff, Loader2, Plus, RefreshCw, Users, UserCircle } from 'lucide-react'
+import { AlertTriangle, Building2, Check, Copy, Eye, EyeOff, Loader2, Plus, RefreshCw, Users, UserCircle } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { useActiveProject, useCreateProject } from '@/components/active-project-provider'
@@ -35,6 +35,7 @@ type Profile = {
   email: string
   role: string
   staffTag?: string | null
+  phone?: string | null
 }
 
 type MogulUser = {
@@ -43,6 +44,7 @@ type MogulUser = {
   email: string
   staffTag: string | null
   isActive: boolean
+  phone?: string | null
   password: string | null
 }
 
@@ -130,7 +132,7 @@ export default function SettingsPage() {
   })
 
   const updateProfile = useMutation({
-    mutationFn: async (payload: { name: string }) => {
+    mutationFn: async (payload: { name: string; phone: string }) => {
       const response = await fetch('/api/settings/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -211,7 +213,8 @@ export default function SettingsPage() {
     const form = new FormData(event.currentTarget)
     const name = String(form.get('name') ?? '').trim()
     if (!name) return
-    updateProfile.mutate({ name })
+    const phone = String(form.get('phone') ?? '').trim()
+    updateProfile.mutate({ name, phone })
   }
 
   function submitUser(event: FormEvent<HTMLFormElement>) {
@@ -299,12 +302,27 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
+            {!profile.phone && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  No WhatsApp number on file — you will not get notified when a task is assigned to you. Add your number below.
+                </span>
+              </div>
+            )}
             <form onSubmit={submitProfile} className="flex flex-col sm:flex-row gap-3">
               <input
                 name="name"
                 defaultValue={profile.name}
                 required
                 minLength={2}
+                placeholder="Name"
+                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
+              <input
+                name="phone"
+                defaultValue={profile.phone ?? ''}
+                placeholder="WhatsApp number"
                 className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
               />
               <button
@@ -312,7 +330,7 @@ export default function SettingsPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
               >
                 {updateProfile.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Save Name
+                Save
               </button>
             </form>
             {profile.staffTag && (
@@ -513,6 +531,12 @@ export default function SettingsPage() {
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground">{mogul.email}</p>
+                        {!mogul.phone && (
+                          <p className="mt-1 flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                            <AlertTriangle className="h-3 w-3" />
+                            No WhatsApp number — task notifications won't reach them until they add one in their profile.
+                          </p>
+                        )}
                       </div>
                       <button
                         onClick={() => {

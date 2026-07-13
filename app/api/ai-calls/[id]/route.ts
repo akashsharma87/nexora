@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSession } from '@/lib/access'
 import { prisma } from '@/lib/db'
 import { cancelAiCall } from '@/lib/ai-calling'
-import { sendPostCallWhatsApp } from '@/lib/automation'
+import { sendPostCallWhatsApp, notifyTaskAssigned } from '@/lib/automation'
 import { eventTypeLabels } from '@/lib/format'
 import { pickMogulAssignee } from '@/lib/mogul-assignment'
 
@@ -154,16 +154,24 @@ async function handleOutcomeUpdate(
     })
 
     // Create a follow-up task for the team
+    const qualifiedTaskTitle = `Follow up with ${aiCall.lead.name} — AI call qualified`
+    const qualifiedDueDate = new Date(Date.now() + 60 * 60 * 1000) // 1 hour from now
     await prisma.task.create({
       data: {
         leadId: aiCall.leadId,
         assignedToId: taskAssigneeId,
-        title: `Follow up with ${aiCall.lead.name} — AI call qualified`,
+        title: qualifiedTaskTitle,
         description: `Budget: ${body.budgetRange ?? 'not mentioned'}. Guests: ${body.guestCount ?? 'not mentioned'}. Notes: ${body.notes}`,
         priority: 'HIGH',
-        dueDate: new Date(Date.now() + 60 * 60 * 1000), // 1 hour from now
+        dueDate: qualifiedDueDate,
         source: 'AI_CALL',
       },
+    })
+    await notifyTaskAssigned({
+      assigneeId: taskAssigneeId,
+      taskTitle: qualifiedTaskTitle,
+      leadName: aiCall.lead.name,
+      dueDate: qualifiedDueDate,
     })
 
     // Log stage change activity
@@ -180,16 +188,24 @@ async function handleOutcomeUpdate(
 
   if (body.outcome === 'CALLBACK' && body.callbackTime) {
     // Create task to call back
+    const callbackTaskTitle = `Callback required: ${aiCall.lead.name}`
+    const callbackDueDate = new Date(Date.now() + 2 * 60 * 60 * 1000)
     await prisma.task.create({
       data: {
         leadId: aiCall.leadId,
         assignedToId: taskAssigneeId,
-        title: `Callback required: ${aiCall.lead.name}`,
+        title: callbackTaskTitle,
         description: `Lead requested callback at: ${body.callbackTime}`,
         priority: 'URGENT',
-        dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        dueDate: callbackDueDate,
         source: 'AI_CALL',
       },
+    })
+    await notifyTaskAssigned({
+      assigneeId: taskAssigneeId,
+      taskTitle: callbackTaskTitle,
+      leadName: aiCall.lead.name,
+      dueDate: callbackDueDate,
     })
   }
 
@@ -197,16 +213,24 @@ async function handleOutcomeUpdate(
     // Not interested is still a real conclusion — a light close-out task so
     // the team can confirm the lead should be marked lost rather than it just
     // going silent with no one ever seeing why.
+    const closeOutTaskTitle = `Close out: ${aiCall.lead.name} — not interested`
+    const closeOutDueDate = new Date(Date.now() + 24 * 60 * 60 * 1000)
     await prisma.task.create({
       data: {
         leadId: aiCall.leadId,
         assignedToId: taskAssigneeId,
-        title: `Close out: ${aiCall.lead.name} — not interested`,
+        title: closeOutTaskTitle,
         description: body.notes || 'AI call concluded the lead is not interested.',
         priority: 'LOW',
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        dueDate: closeOutDueDate,
         source: 'AI_CALL',
       },
+    })
+    await notifyTaskAssigned({
+      assigneeId: taskAssigneeId,
+      taskTitle: closeOutTaskTitle,
+      leadName: aiCall.lead.name,
+      dueDate: closeOutDueDate,
     })
   }
 

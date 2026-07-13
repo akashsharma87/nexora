@@ -13,15 +13,20 @@ export async function GET() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, name: true, email: true, role: true, staffTag: true },
+    select: { id: true, name: true, email: true, role: true, staffTag: true, phone: true },
   })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   return NextResponse.json({ user })
 }
 
+const emptyToUndefined = (value: unknown) => (value === '' ? undefined : value)
+
 const profileUpdateSchema = z.object({
-  name: z.string().min(2),
+  name: z.string().min(2).optional(),
+  // WhatsApp number tasks get assigned-task notifications on — see notifyTaskAssigned in
+  // lib/automation.ts, which silently skips anyone with phone left null.
+  phone: z.preprocess(emptyToUndefined, z.string().optional()),
 })
 
 export async function PATCH(request: NextRequest) {
@@ -35,8 +40,8 @@ export async function PATCH(request: NextRequest) {
 
   const user = await prisma.user.update({
     where: { id: session.user.id },
-    data: { name: parsed.data.name },
-    select: { id: true, name: true, email: true, role: true, staffTag: true },
+    data: parsed.data,
+    select: { id: true, name: true, email: true, role: true, staffTag: true, phone: true },
   })
 
   return NextResponse.json({ user })
