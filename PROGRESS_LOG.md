@@ -1258,3 +1258,41 @@ inputs so staff get consistent values instead of typos/variants that would silen
 - **Not done:** no real test call yet for either the cutoff fix or the new English/Indian-accent
   tier — recommend a live test call to a non-Hinglish-tier number before relying on this in
   production.
+
+---
+
+## Session 20 — July 14, 2026
+
+### Priya hanging up on the caller / abrupt endings (two fixes)
+
+Live-test feedback: (a) call ended ~2 min in after out-of-scenario questions, with no proper
+conclusion — felt awkward; (b) interrupting Priya at the very end of her goodbye was ignored —
+she finished talking and hung up without listening.
+
+**Clarified:** there is NO hard call-duration limit anywhere — no `timeLimit` on the Twilio call
+(`lib/ai-calling.ts`), only an 8s hangup safety-net timer. The "2-minute cutoff" was Priya
+*choosing* to wrap, driven by the "~3 minutes" boundary line + zero guidance on off-topic
+questions.
+
+**Code fix (`calling-server/server.js`) — barge-in can now abort a pending hang-up:** once
+`report_outcome` fired, `pendingHangup` was locked and the barge-in handler only stopped audio /
+cancelled the response — it never cancelled the hang-up, so the call died even when the lead spoke
+up. Now `input_audio_buffer.speech_started` also aborts a pending hang-up (resets `pendingHangup`
+/ `hangupMarkSent`, clears the tracked force-close timer `hangupForceTimer`) so Priya re-engages
+instead of cutting them off. `handleOutcomeCall` restructured so `pendingHangup` re-arms on a
+*second* report_outcome (after re-engagement) even though the outcome is only reported to Nexora
+once (`outcomeReported` guard kept around the PATCH only).
+
+**Prompt fixes (`calling-server/server.js` buildInstructions):**
+- New "OFF-TOPIC / OUT-OF-SCOPE QUESTIONS" section: stay warm, answer briefly or defer to the
+  human colleague, never fabricate, and NEVER treat off-topic/random questions as a reason to end.
+- "ENDING THE CALL" reworked: only close at a genuine natural ending (info gathered + nothing more
+  to say, or busy/not-interested/wrong-number/they say bye); never wrap just because time passes or
+  the chat wandered; never call report_outcome while they're still talking.
+- "HANDLING INTERRUPTIONS": explicitly extended to the goodbye — if they speak during/right after
+  the sign-off, drop it and answer; only close once they're truly done.
+- "BOUNDARIES": "~3 minutes" reframed from a limit to a soft guide (never rush/cut short to hit it).
+
+- Verified: `node --check calling-server/server.js` passes. No real test call yet.
+- **Deploy:** only `helpful-insight` (calling-server) needs redeploy; main `nexora` app unaffected
+  this session.

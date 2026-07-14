@@ -70,6 +70,7 @@ wss.on('connection', (twilioWs, req) => {
   let responseActive = false // true while OpenAI is generating a response (for barge-in)
   let pendingHangup = false  // report_outcome fired → hang up once goodbye finishes playing
   let hangupMarkSent = false
+  let hangupForceTimer = null // force-close safety net; tracked so a barge-in can cancel it
   let responseCreateSent = false // guards the opening response.create against double-send
   const HANGUP_MARK = 'nexora-hangup'
 
@@ -155,15 +156,19 @@ wss.on('connection', (twilioWs, req) => {
   // Priya's final action — it also arms the hang-up so the call ends after her
   // goodbye finishes playing (instead of sitting silent waiting for the lead).
   function handleOutcomeCall(rawArgs) {
-    if (outcomeReported) return
-    try {
-      const outcome = JSON.parse(rawArgs)
-      console.log(`[call:${callId}] Outcome reported:`, outcome.outcome, outcome.qualifiedScore)
-      outcomeReported = true
-      reportOutcomeToNexora(callId, outcome, transcript)
-    } catch (e) {
-      console.error(`[call:${callId}] Failed to parse outcome:`, e)
+    if (!outcomeReported) {
+      try {
+        const outcome = JSON.parse(rawArgs)
+        console.log(`[call:${callId}] Outcome reported:`, outcome.outcome, outcome.qualifiedScore)
+        outcomeReported = true
+        reportOutcomeToNexora(callId, outcome, transcript)
+      } catch (e) {
+        console.error(`[call:${callId}] Failed to parse outcome:`, e)
+      }
     }
+    // Arm the hang-up EVERY time report_outcome fires — even if the outcome was already
+    // reported on an earlier wrap-up that the lead then interrupted (see the barge-in abort
+    // below). Otherwise, after re-engaging, a second goodbye would never actually hang up.
     pendingHangup = true
     maybeSendHangupMark()
   }
@@ -185,8 +190,9 @@ wss.on('connection', (twilioWs, req) => {
     hangupMarkSent = true
     twilioWs.send(JSON.stringify({ event: 'mark', streamSid, mark: { name: HANGUP_MARK } }))
     console.log(`[call:${callId}] 👋 Goodbye done — mark placed, hanging up once played`)
-    // Safety net: if Twilio never echoes the mark, force-close anyway.
-    setTimeout(() => {
+    // Safety net: if Twilio never echoes the mark, force-close anyway. Tracked so a
+    // barge-in that aborts the hang-up (see speech_started below) can cancel it.
+    hangupForceTimer = setTimeout(() => {
       if (twilioWs.readyState === WebSocket.OPEN) {
         console.log(`[call:${callId}] ⏱️  Hangup mark not echoed — force closing`)
         endCall()
@@ -241,6 +247,18 @@ wss.on('connection', (twilioWs, req) => {
       if (responseActive) {
         openaiWs.send(JSON.stringify({ type: 'response.cancel' }))
         console.log(`[call:${callId}] ✋ Barge-in — cleared Twilio audio + cancelled response`)
+      }
+      // The lead spoke up just as we were about to hang up — most importantly, mid-goodbye
+      // or right after it. They clearly want to keep talking, so ABORT the pending hang-up
+      // instead of cutting them off. Reset the hang-up state (the `clear` above already
+      // discarded any queued hangup mark on Twilio's side) and cancel the force-close timer.
+      // Server VAD will auto-create Priya's next response once they finish speaking; she'll
+      // only hang up again after she gives a fresh goodbye and re-calls report_outcome.
+      if (pendingHangup) {
+        pendingHangup = false
+        hangupMarkSent = false
+        if (hangupForceTimer) { clearTimeout(hangupForceTimer); hangupForceTimer = null }
+        console.log(`[call:${callId}] 🔄 Barge-in during pending hang-up — aborting hang-up, re-engaging`)
       }
     }
 
@@ -598,6 +616,12 @@ ${isIndia ? `# LANGUAGE (CRITICAL — follow strictly)
 # HANDLING INTERRUPTIONS
 - If they talk while you're speaking, STOP instantly and listen — never talk over them or finish your old sentence.
 - When you resume, do NOT restart your previous sentence${isIndia ? ' and do NOT default to "haan ji"' : ''}. React to what they actually just said, with a fresh, fitting acknowledgement.
+- This applies EVEN during your goodbye. If they speak up while or right after you're signing off — a last question, "wait", anything — STOP, drop the goodbye, and answer them. Never end the call while they are still trying to say something. Only close once they are truly done.
+
+# OFF-TOPIC / OUT-OF-SCOPE QUESTIONS (important)
+- If they ask something off-topic, unexpected, or outside what you'd know (unrelated topics, oddly specific or technical questions, testing you, etc.), stay warm and human — do NOT get flustered and do NOT treat it as a signal to end the call.
+- If it's quick and harmless, answer briefly, then gently guide back to ${roomStay ? 'their stay' : 'their event'}. If you genuinely don't know or it's not your area, say so simply and warmly ("that's something my colleague can help you with when they call you shortly") and steer back — never make up facts, prices, or policies.
+- Off-topic or repeated random questions are NEVER a reason to wrap up or hang up. Keep engaging patiently for as long as they want to talk; only move toward closing when there's a genuine, natural reason to (see ENDING THE CALL).
 
 # UNCLEAR AUDIO
 - Only respond to what you clearly heard. If it's garbled or you're unsure, ask them warmly to repeat — "${unclearAudioLine}" Never guess at content you didn't catch.
@@ -622,14 +646,15 @@ Once they confirm they're free to talk (any clear "yes"/"haan"/"bolo" type respo
 ${whatToLearn}
 Weave these in like a friendly, curious chat — never fire them one after another like a form.
 
-# ENDING THE CALL (important — always close cleanly, never trail off)
-Every call must reach a clear ending — never go quiet waiting for them once you've said what you need to. When you're ready to close:
+# ENDING THE CALL (important — only close at a NATURAL ending, then close cleanly)
+ONLY start closing when there's a genuine reason to: you've gathered what you need AND they have no more to say, or they clearly want to go (busy / not interested / wrong number / they say goodbye). Do NOT wrap up just because time is passing, because they asked something off-topic, or because the chat wandered — keep engaging until there's a real, natural ending. Cutting a call short mid-conversation feels abrupt and rude; never do it.
+Once there's genuinely nothing left and it's time to close:
 1. Say your closing message naturally. For an interested lead: ${closingLine}
 2. Then say a warm, complete goodbye — e.g. "${goodbyeLine}" This is a definite sign-off, not a question. Do NOT ask anything after it or wait for them to reply. Speak the ENTIRE goodbye sentence out loud, start to finish, before doing anything else.
-3. Only once the goodbye sentence has been fully spoken, call the report_outcome function as your very last action. Calling it hangs up the call immediately — so never call it before or during the goodbye, only strictly after.
+3. Only once the goodbye sentence has been fully spoken AND they aren't saying anything more, call the report_outcome function as your very last action. Calling it hangs up the call immediately — so never call it before or during the goodbye, and never while they're still talking; only strictly after, once they're truly done.
 
 # BOUNDARIES
-- Keep the whole call under ~3 minutes — efficient but never rushed or pushy.
+- Aim to be efficient — most calls land around 2-3 minutes — but this is a soft guide, NOT a hard limit. Never rush, cut them off, or wrap up early just to hit it; if they want to keep talking, stay with them and let the call reach its own natural end.
 - If busy: warmly offer a callback ("${busyLine}"), then give your goodbye and call report_outcome.
 - If not interested: be gracious ("${notInterestedLine}"), then goodbye and call report_outcome.
 - If wrong number: apologise sincerely, brief goodbye, then call report_outcome.
