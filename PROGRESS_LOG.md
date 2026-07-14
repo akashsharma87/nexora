@@ -1296,3 +1296,51 @@ once (`outcomeReported` guard kept around the PATCH only).
 - Verified: `node --check calling-server/server.js` passes. No real test call yet.
 - **Deploy:** only `helpful-insight` (calling-server) needs redeploy; main `nexora` app unaffected
   this session.
+
+---
+
+## Session 20 — July 14, 2026
+
+### Knowledge Base — Priya learns the venue from the client's own website
+
+New sidebar feature: scrape a property's website once, distill it into ~15-20 structured key
+facts (not prose, not live RAG — a deliberate one-time-setup design, see `knowledge.md`), let
+staff review/edit them, and feed them into Priya's (AI caller) system prompt so she can answer
+venue-specific questions instead of only knowing the lead's own enquiry.
+
+- **Schema:** `Property.websiteUrl`; new `KnowledgeBase` (status, `keyFacts` JSON array of
+  `{category, fact, source: 'scrape'|'manual'}`, page/fact counts) and `KnowledgePage` (cleaned
+  per-page text + hash) models; `KnowledgeStatus` enum. Pushed locally via `db:push` — production
+  picks it up automatically via `railway.toml`'s `npx prisma db push` start command, no manual
+  migration needed.
+- **Pipeline** (`lib/knowledge/`): `ssrf.ts` (allowlist guard — only `ipaddr.js` `range()==='unicast'`
+  resolved IPs are fetchable, blocking private/loopback/link-local/the 169.254.169.254 metadata
+  IP by construction, re-checked post-redirect), `crawl.ts` (bounded same-site BFS, robots.txt,
+  `cheerio`+`p-limit`, no headless browser), `extract.ts` (clean text extraction), `compile.ts`
+  (map-reduce LLM extraction of the top 12-20 facts via `lib/openai.ts`'s now-exported
+  `getClient()`, with a deterministic non-AI fallback if no API key), `runner.ts` (orchestrates
+  crawl→extract→facts, merges with existing `source:'manual'` facts so hand-added ones always
+  survive a re-crawl).
+  - **Bug caught during review and fixed:** if a re-crawl ever returned zero pages (site
+    temporarily down, robots.txt blocked us), the original logic would have wiped the property's
+    entire stored page set and collapsed facts to just the manual ones. Fixed so an empty crawl
+    attempt leaves prior pages/facts untouched instead of silently degrading a working KB.
+- **API:** `GET/PATCH/DELETE /api/knowledge`, `POST /api/knowledge/scrape` (kicks the job
+  fire-and-forget — Railway's persistent process keeps it running after the response),
+  `POST /api/knowledge/recompile` (re-extract facts without re-crawling), `POST
+  /api/cron/process-knowledge` (safety net: resets stale `PROCESSING` rows, picks up stuck
+  `PENDING` ones — added to `railway.toml` cron), `GET /api/internal/knowledge-facts`
+  (calling-server only, guarded by the existing `x-calling-server-secret`).
+- **UI:** new "Knowledge Base" sidebar item → `/knowledge` page (source URL, live status polling
+  while scraping, editable key-facts list distinguishing scraped vs. team-added, scraped-pages
+  list, delete); `websiteUrl` field added to both Settings property forms.
+- **Priya wiring:** `propertyId` now passed via `lib/ai-calling.ts` → calling-server as a Twilio
+  `<Parameter>`; `calling-server/server.js` fetches facts via the internal endpoint the moment
+  `propertyId` is known (2.5s timeout, 10-min in-memory cache), overlapping the fetch with the
+  OpenAI socket handshake so it adds no real-world latency; injects a grouped bullet list into
+  the prompt with an explicit "never invent beyond this list, defer instead" rule. A property with
+  no knowledge base behaves exactly as before — zero regression.
+- Verified: `tsc --noEmit` clean, `next build` clean (all new routes compiled), `node --check
+  calling-server/server.js` passes.
+- **Not done:** no live test call yet with a populated knowledge base — recommend testing before
+  relying on it in production. Full plan/design rationale lives in `knowledge.md`.

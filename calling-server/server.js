@@ -57,6 +57,9 @@ wss.on('connection', (twilioWs, req) => {
   // than looked up per lead. Drives Priya's default language below (India → Hinglish, else →
   // English). Defaults to India to match Property.country's schema default.
   let country = url.searchParams.get('country') || 'India'
+  // Lets this server fetch the property's Knowledge Base key facts itself (see
+  // fetchKnowledgeFacts below) rather than trying to pass the facts through a <Parameter>.
+  let propertyId = url.searchParams.get('propertyId') || null
 
   console.log(`[call:${callId}] New Twilio connection — lead: ${leadName}`)
 
@@ -73,6 +76,12 @@ wss.on('connection', (twilioWs, req) => {
   let hangupForceTimer = null // force-close safety net; tracked so a barge-in can cancel it
   let responseCreateSent = false // guards the opening response.create against double-send
   const HANGUP_MARK = 'nexora-hangup'
+  // Knowledge Base key facts (see fetchKnowledgeFacts below). knowledgeFactsReady gates
+  // configureSession the same way `started` does — set true either once the fetch settles
+  // (success, miss, or its own timeout) or immediately if there's no propertyId at all, so a
+  // property with no knowledge base never waits on anything.
+  let knowledgeFacts = null
+  let knowledgeFactsReady = false
 
   // ── Open OpenAI Realtime WebSocket ──────────────────────────────────────────
   // Reverted from gpt-realtime-2.1 back to gpt-realtime: 2.1 had a much stronger
@@ -89,10 +98,13 @@ wss.on('connection', (twilioWs, req) => {
     }
   )
 
-  // Send session.update only once BOTH the OpenAI socket is open AND Twilio's
-  // `start` event has delivered the lead params (so instructions have the name).
+  // Send session.update only once the OpenAI socket is open, Twilio's `start` event has
+  // delivered the lead params (so instructions have the name), AND the knowledge-facts fetch
+  // has settled (or had nothing to fetch). In practice the facts fetch — one fast indexed read
+  // on the same Railway infra, capped at 2.5s — resolves well before the OpenAI socket finishes
+  // its handshake, so this adds no real-world latency; it only bounds the worst case.
   function configureSession() {
-    if (!openaiReady || !started || sessionConfigured) return
+    if (!openaiReady || !started || !knowledgeFactsReady || sessionConfigured) return
     sessionConfigured = true
     console.log(`[call:${callId}] Configuring session — lead: ${leadName}, event: ${eventType}`)
 
@@ -105,7 +117,7 @@ wss.on('connection', (twilioWs, req) => {
       session: {
         type: 'realtime',
         output_modalities: ['audio'],
-        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country }),
+        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, knowledgeFacts }),
         // NOTE: do NOT add a `reasoning` param here — gpt-realtime rejects it
         // ("Unsupported option for this model"), which would fail the whole
         // session.update and leave the call silent. It's a gpt-realtime-2.1-only option.
@@ -357,7 +369,22 @@ wss.on('connection', (twilioWs, req) => {
       if (cp.budgetMin) budgetMin = Number(cp.budgetMin)
       if (cp.budgetMax) budgetMax = Number(cp.budgetMax)
       if (cp.country) country = cp.country
+      if (cp.propertyId) propertyId = cp.propertyId
       started = true
+
+      // Kick the knowledge-facts fetch the moment propertyId is known, in parallel with the
+      // OpenAI socket opening — see the knowledgeFactsReady comment above configureSession.
+      if (propertyId) {
+        fetchKnowledgeFacts(propertyId)
+          .then((facts) => { knowledgeFacts = facts })
+          .catch(() => { knowledgeFacts = null })
+          .finally(() => {
+            knowledgeFactsReady = true
+            configureSession()
+          })
+      } else {
+        knowledgeFactsReady = true
+      }
 
       console.log(`[call:${callId}] ✅ Twilio stream started — SID: ${streamSid}, lead: ${leadName}, buffered chunks: ${audioBuffer.length}`)
       configureSession()
@@ -424,6 +451,62 @@ async function reportOutcomeToNexora(callId, outcome, transcript) {
   }
 }
 
+// Process-lifetime cache — same property is often called repeatedly in a short window
+// (bulk-trigger campaigns), so this avoids re-fetching on every single call.
+const KNOWLEDGE_FACTS_CACHE_TTL_MS = 10 * 60 * 1000
+const knowledgeFactsCache = new Map() // propertyId -> { facts, ts }
+
+// Fetches this property's Knowledge Base key facts from the main Nexora app (see
+// GET /api/internal/knowledge-facts), guarded by the same shared secret used for the outcome
+// callback above. Never throws and never blocks a call for long: 2.5s timeout, resolves to
+// null on any miss/error/timeout so a call always proceeds — with or without venue context.
+async function fetchKnowledgeFacts(propertyId) {
+  const cached = knowledgeFactsCache.get(propertyId)
+  if (cached && Date.now() - cached.ts < KNOWLEDGE_FACTS_CACHE_TTL_MS) {
+    return cached.facts
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 2500)
+  try {
+    const res = await fetch(
+      `${NEXORA_APP_URL}/api/internal/knowledge-facts?propertyId=${encodeURIComponent(propertyId)}`,
+      {
+        headers: { 'x-calling-server-secret': CALLING_SERVER_SECRET },
+        signal: controller.signal,
+      }
+    )
+    if (!res.ok) return null
+    const body = await res.json()
+    const facts = Array.isArray(body.facts) ? body.facts : null
+    knowledgeFactsCache.set(propertyId, { facts, ts: Date.now() })
+    return facts
+  } catch (e) {
+    console.error(`[knowledge-facts:${propertyId}] fetch failed:`, e.message)
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Renders key facts as a grouped bullet list for the prompt — e.g.:
+//   Event Spaces:
+//   - Grand Ballroom seats 400 / 700 floating.
+function renderKnowledgeFacts(facts) {
+  if (!Array.isArray(facts) || facts.length === 0) return null
+  const byCategory = new Map()
+  for (const f of facts) {
+    if (!f || typeof f.fact !== 'string' || !f.fact.trim()) continue
+    const category = typeof f.category === 'string' && f.category.trim() ? f.category.trim() : 'Overview'
+    if (!byCategory.has(category)) byCategory.set(category, [])
+    byCategory.get(category).push(f.fact.trim())
+  }
+  if (byCategory.size === 0) return null
+  return Array.from(byCategory.entries())
+    .map(([category, items]) => `${category}:\n${items.map((i) => `- ${i}`).join('\n')}`)
+    .join('\n')
+}
+
 function formatEventType(raw) {
   return raw.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
 }
@@ -478,11 +561,12 @@ function getLanguageTier(country) {
   return 'NEUTRAL_ENGLISH'
 }
 
-function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country }) {
+function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, knowledgeFacts }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
   const roomStay = isRoomStayInquiry(sourceTab)
   const hasGuestCount = typeof guestCount === 'number' && guestCount > 0
   const budgetLabel = formatBudgetLabel(budgetMin, budgetMax)
+  const knowledgeFactsList = renderKnowledgeFacts(knowledgeFacts)
   // The property's country decides the DEFAULT language/accent, not the lead's — see the
   // `country` comment where it's read from customParameters above. Three tiers (see
   // getLanguageTier): HINGLISH (India) speaks Hinglish in an Indian accent; INDIAN_ACCENT_ENGLISH
@@ -632,6 +716,16 @@ ${isIndia ? `# LANGUAGE (CRITICAL — follow strictly)
 - ${leadName} is their first name only — always use exactly this, never guess at a surname or a different form of it.
 - NEVER attach "ji" directly after their name (e.g. never say "${leadName} ji"). Say the name plainly on its own — "${leadName}, ..." — or drop the name and use "ji" elsewhere in the sentence instead. "ji" is fine as a general polite word elsewhere, just never stuck right after their name.
 
+${knowledgeFactsList ? `# ABOUT THE VENUE (KNOWLEDGE BASE — use naturally in conversation)
+These are verified facts about the venue. Use them to answer the lead's questions confidently and
+specifically. But:
+- Speak naturally — never read this list out or dump it. Pull in only what's relevant to what they
+  actually ask.
+- State ONLY what's listed here. Never invent or guess prices, capacities, dates, or policies. If
+  they ask something not covered below, warmly say your colleague will confirm the exact details
+  (same as the OFF-TOPIC rule above).
+${knowledgeFactsList}
+` : ''}
 ${knownParts.length > 0
   ? `# WHAT YOU ALREADY KNOW (from their enquiry form — CONFIRM these naturally in passing, e.g. "${confirmKnownExample}" — do NOT ask about these as if you have no idea, that makes it obvious you never read their submission)`
   : '# WHAT YOU ALREADY KNOW (from their enquiry form)'}

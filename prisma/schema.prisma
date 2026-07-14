@@ -37,6 +37,8 @@ model Property {
   googleAdsAccountName String?
   autoAiCallingEnabled Boolean           @default(false)
   autoWhatsappNurtureEnabled Boolean     @default(false)
+  // Client's public website — source for the AI-caller Knowledge Base (see KnowledgeBase below).
+  websiteUrl           String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   organization         Organization      @relation(fields: [organizationId], references: [id])
@@ -45,6 +47,56 @@ model Property {
   campaigns            Campaign[]
   listings             PlatformListing[]
   templates            MessageTemplate[]
+  knowledgeBase        KnowledgeBase?
+}
+
+// One-time (re-runnable) scrape of Property.websiteUrl, distilled into a bounded list of ~15-20
+// key facts that get injected into Priya's (AI caller) system prompt — see calling-server/server.js
+// buildInstructions(). Deliberately NOT a live vector-search/RAG index: for a realtime voice call,
+// latency matters more than corpus size, and a venue's key facts comfortably fit a capped list.
+model KnowledgeBase {
+  id            String          @id @default(cuid())
+  propertyId    String          @unique
+  sourceUrl     String?         // URL last scraped (mirrors Property.websiteUrl at scrape time)
+  status        KnowledgeStatus @default(EMPTY)
+  pagesScraped  Int             @default(0)
+  // THE payload Priya uses — a JSON array of KeyFact: { category, fact, source }, where
+  // source is "scrape" | "manual". `source` lets a re-crawl/regenerate replace only
+  // scrape-derived facts while PRESERVING hand-added ones, so staff edits are never wiped.
+  // This is the only field the calling server reads (via /api/internal/knowledge-facts).
+  keyFacts      Json?
+  factsCount    Int             @default(0)
+  lastScrapedAt DateTime?
+  error         String?         @db.Text
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  property      Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  pages         KnowledgePage[]
+}
+
+// Cleaned per-page text from the crawl. Kept around so facts can be regenerated without
+// re-scraping the site (see recompileFacts in lib/knowledge/runner.ts).
+model KnowledgePage {
+  id              String        @id @default(cuid())
+  knowledgeBaseId String
+  url             String
+  title           String?
+  content         String        @db.Text
+  contentHash     String        // sha256 of content; skips near-dupe boilerplate pages on re-crawl
+  wordCount       Int           @default(0)
+  createdAt       DateTime      @default(now())
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@unique([knowledgeBaseId, url])
+  @@index([knowledgeBaseId])
+}
+
+enum KnowledgeStatus {
+  EMPTY       // no scrape yet
+  PENDING     // queued, runner not started
+  PROCESSING  // crawl/extract in progress
+  READY       // key facts available
+  FAILED      // see `error`
 }
 
 model User {

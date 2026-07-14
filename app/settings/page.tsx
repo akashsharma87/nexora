@@ -19,6 +19,7 @@ type Property = {
   country?: string | null
   phone?: string | null
   email?: string | null
+  websiteUrl?: string | null
   organization?: { name: string }
 }
 
@@ -208,6 +209,7 @@ export default function SettingsPage() {
       country: form.get('country'),
       phone: form.get('phone'),
       email: form.get('email'),
+      websiteUrl: form.get('websiteUrl'),
     })
   }
 
@@ -257,6 +259,7 @@ export default function SettingsPage() {
         country: String(data.get('country') ?? ''),
         phone: String(data.get('phone') ?? ''),
         email: String(data.get('email') ?? ''),
+        websiteUrl: String(data.get('websiteUrl') ?? ''),
       })
       toast.success(`"${project.name}" created`)
       form.reset()
@@ -391,6 +394,7 @@ export default function SettingsPage() {
               <input name="country" placeholder="Country (e.g. India)" defaultValue="India" list="priya-country-suggestions" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="phone" placeholder="Phone" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="email" type="email" placeholder="Email" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <input name="websiteUrl" type="url" placeholder="Website (e.g. https://venue.com)" className="md:col-span-2 rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <datalist id="priya-country-suggestions">
                 {PRIYA_COUNTRY_SUGGESTIONS.map((c) => (
                   <option key={c} value={c} />
@@ -399,6 +403,7 @@ export default function SettingsPage() {
               <p className="md:col-span-2 -mt-1 text-xs text-muted-foreground">
                 Country determines Priya&apos;s default language: Hinglish (India), Indian-accented
                 English (nearby countries with Indian-diaspora clientele), or neutral English (elsewhere).
+                Website is used to build Priya&apos;s Knowledge Base about the venue.
               </p>
               <button
                 type="submit"
@@ -437,10 +442,18 @@ export default function SettingsPage() {
                   <input name="phone" defaultValue={property.phone ?? ''} placeholder="Phone" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                   <input name="email" defaultValue={property.email ?? ''} placeholder="Email" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                 </div>
+                <input
+                  name="websiteUrl"
+                  type="url"
+                  defaultValue={property.websiteUrl ?? ''}
+                  placeholder="Website (e.g. https://venue.com)"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                />
                 <p className="text-xs text-muted-foreground">
                   Country determines Priya&apos;s (AI calling) default language: Hinglish (India),
                   Indian-accented English (nearby countries with Indian-diaspora clientele), or neutral
-                  English (elsewhere).
+                  English (elsewhere). Priya uses the website to build a Knowledge Base so she can
+                  answer questions about the venue — see the Knowledge Base page to build/edit it.
                 </p>
                 <button className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Save Property</button>
               </form>

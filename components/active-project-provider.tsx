@@ -24,6 +24,7 @@ export type NewProjectInput = {
   country?: string
   phone?: string
   email?: string
+  websiteUrl?: string
 }
 
 type CreateProjectResponse = {

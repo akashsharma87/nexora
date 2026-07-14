@@ -16,6 +16,7 @@ import {
   FileText,
   Link2,
   Phone,
+  BookOpen,
 } from 'lucide-react'
 
 import { ProjectSwitcher } from '@/components/project-switcher'
@@ -36,6 +37,7 @@ export function Sidebar() {
     { icon: Globe, label: 'Platforms', href: '/platforms', id: 'platforms' },
     { icon: FileText, label: 'Proposals', href: '/proposals', id: 'proposals' },
     { icon: Phone, label: 'AI Calls', href: '/ai-calls', id: 'ai-calls' },
+    { icon: BookOpen, label: 'Knowledge Base', href: '/knowledge', id: 'knowledge' },
   ]
 
   const bottomMenuItems = [

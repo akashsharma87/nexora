@@ -4,7 +4,9 @@ import { cleanTabLabel } from '@/lib/whatsapp'
 
 let _client: OpenAI | null = null
 
-function getClient(): OpenAI | null {
+// Exported so other AI features (e.g. lib/knowledge/compile.ts) share one client + the same
+// graceful "no key configured" fallback behaviour instead of re-implementing it.
+export function getClient(): OpenAI | null {
   if (!process.env.OPENAI_API_KEY) return null
   if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   return _client

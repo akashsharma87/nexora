@@ -78,6 +78,11 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
     // property's leads are overwhelmingly from one region. Drives Priya's default language in
     // calling-server/server.js (India → Hinglish, else → English).
     ['country', property?.country ?? 'India'],
+    // Lets the calling server fetch this property's Knowledge Base key facts itself (see
+    // GET /api/internal/knowledge-facts) rather than trying to pass the facts through a
+    // <Parameter> — there's no practical size limit concern this way, and it stays a single
+    // source of truth in the DB rather than a snapshot baked into the call at dial time.
+    ['propertyId', aiCall.propertyId],
   ]
   if (aiCall.lead.eventDate) {
     params.push(['eventDate', aiCall.lead.eventDate.toISOString().split('T')[0]])

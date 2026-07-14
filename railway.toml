@@ -10,3 +10,7 @@ restartPolicyMaxRetries = 3
 [[cron]]
 schedule = "* * * * *"
 command = "curl -s -X POST $APP_URL/api/cron/process-calls -H 'x-cron-secret: $CRON_SECRET'"
+
+[[cron]]
+schedule = "* * * * *"
+command = "curl -s -X POST $APP_URL/api/cron/process-knowledge -H 'x-cron-secret: $CRON_SECRET'"
