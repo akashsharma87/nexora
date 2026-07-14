@@ -25,6 +25,7 @@ export async function GET() {
     id: property.id,
     name: property.name,
     city: property.city,
+    country: property.country,
     organizationName: property.organization.name,
   }))
 

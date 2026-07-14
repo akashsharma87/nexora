@@ -1198,3 +1198,63 @@ is now created + APPROVED (confirmed live via the Wati API in Session 17).
   campaign tab is not built.
 - Google/Meta Ads sync still pulls all campaigns incl. non-lead-gen boosted posts (flagged Session
   10); lifetime totals vs. Ads Manager's 30-day default still differ.
+
+---
+
+## Session 18 — July 14, 2026
+
+### Property.country — Priya defaults to English outside India
+
+New client: Nairobi, Kenya. Priya's calling script previously always defaulted to Hinglish
+(hardcoded Hindi opening line too) and only reactively mirrored English — wrong for leads who
+never speak Hindi at all.
+
+- Added `Property.country` (default `"India"`) — a **property-level** setting (client's leads are
+  one region, not per-lead). Captured at register, Add Project (sidebar + Settings), and Settings
+  → Property edit. Local dev DB updated (`prisma db push`); **not yet pushed to production.**
+- `lib/ai-calling.ts` passes `property.country` to the calling server; `calling-server/server.js`
+  now branches `buildInstructions()` on `isIndia` (country blank/"India" → existing Hinglish;
+  anything else → English default for the whole call, not just reactive mirroring) — covers
+  accent, language, opening line, goodbye/busy/not-interested/unclear-audio lines.
+- `lib/calling-script.ts` confirmed dead code (unused) — left alone.
+- **Not done:** WhatsApp (`lib/whatsapp.ts`) templates are a single global pre-approved Wati set,
+  not per-property — untouched, and their English-readiness for a non-India client hasn't been
+  checked. Production DB migration also still pending.
+- Verified: `tsc --noEmit` / `next build` clean (only pre-existing unrelated errors); not tested on
+  a real call yet.
+
+---
+
+## Session 19 — July 14, 2026
+
+### Fixed goodbye getting cut off + 3-tier language/accent for Priya
+
+**Call-ending cutoff bug:** `calling-server/server.js`'s `report_outcome` tool description told
+Priya to call it *before* saying goodbye, while the system prompt told her to call it *after* —
+a direct contradiction. Since the model leans on a tool's own description to decide when to call
+it, this was making her invoke the (hangup-triggering) function early and cut her goodbye off
+mid-sentence, so calls sometimes ended abruptly like she was cut off. Fixed the tool description
+to match the prompt (call it ONLY after the goodbye is fully spoken) and tightened the "ENDING THE
+CALL" instructions. Not yet verified on a real call.
+
+**3-tier language/accent** (was binary India/non-India): added `getLanguageTier(country)` in
+`calling-server/server.js`:
+- `HINGLISH` (India) — unchanged.
+- `INDIAN_ACCENT_ENGLISH` (new) — Gulf/South-Asian countries with Indian-diaspora hospitality
+  clientele (UAE, Saudi Arabia, Qatar, Kuwait, Oman, Bahrain, Nepal, Bhutan, Sri Lanka, Bangladesh,
+  Singapore, Malaysia, Maldives, Mauritius — list is an assumption, not confirmed with the team,
+  adjust as needed). English by default, Indian-accent lean, mirrors Hindi if the lead uses it.
+- `NEUTRAL_ENGLISH` — everywhere else, unchanged from the old non-India behaviour.
+
+**Country field reliability:** the field already existed everywhere a property gets created
+(register form, Settings "Add Project", Settings → Property edit) from Session 18. Added
+`lib/priya-country-suggestions.ts` (shared list) wired via `<datalist>` into all three country
+inputs so staff get consistent values instead of typos/variants that would silently fall back to
+`NEUTRAL_ENGLISH` (e.g. "Dubai" instead of "UAE"). Keep this list in sync with
+`INDIAN_ACCENT_ENGLISH_COUNTRIES` in `calling-server/server.js` if that list changes.
+
+- Verified: `tsc --noEmit` clean on all touched files (pre-existing unrelated errors only, in
+  `app/api/seed/route.ts`, `lib/auth.ts`, `prisma/seed.ts`).
+- **Not done:** no real test call yet for either the cutoff fix or the new English/Indian-accent
+  tier — recommend a live test call to a non-Hinglish-tier number before relying on this in
+  production.

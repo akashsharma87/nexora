@@ -24,6 +24,10 @@ model Property {
   name                 String
   address              String?
   city                 String?
+  // Drives Priya's default call/message language (lib/ai-calling.ts → calling-server/server.js):
+  // "India" defaults to Hinglish, anything else defaults to English. Free text, not an enum —
+  // matched case-insensitively against "india" rather than constrained to a fixed list.
+  country              String            @default("India")
   phone                String?
   email                String?
   logoUrl              String?

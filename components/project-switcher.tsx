@@ -53,6 +53,7 @@ export function ProjectSwitcher() {
       const { project } = await createProject({
         name,
         city: String(form.get('city') ?? ''),
+        country: String(form.get('country') ?? ''),
         phone: String(form.get('phone') ?? ''),
         email: String(form.get('email') ?? ''),
       })
@@ -86,11 +87,22 @@ export function ProjectSwitcher() {
                 placeholder="Property name"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
               />
-              <input
-                name="city"
-                placeholder="City"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              />
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  name="city"
+                  placeholder="City"
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                />
+                <input
+                  name="country"
+                  placeholder="Country (e.g. India)"
+                  defaultValue="India"
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <p className="-mt-1 text-xs text-muted-foreground">
+                Determines whether Priya defaults to Hinglish (India) or English (other countries).
+              </p>
               <div className="grid grid-cols-2 gap-3">
                 <input
                   name="phone"

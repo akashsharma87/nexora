@@ -9,12 +9,14 @@ import { AlertTriangle, Building2, Check, Copy, Eye, EyeOff, Loader2, Plus, Refr
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { useActiveProject, useCreateProject } from '@/components/active-project-provider'
 import { canManage } from '@/lib/roles'
+import { PRIYA_COUNTRY_SUGGESTIONS } from '@/lib/priya-country-suggestions'
 
 type Property = {
   id: string
   name: string
   address?: string | null
   city?: string | null
+  country?: string | null
   phone?: string | null
   email?: string | null
   organization?: { name: string }
@@ -203,6 +205,7 @@ export default function SettingsPage() {
       name: form.get('name'),
       address: form.get('address'),
       city: form.get('city'),
+      country: form.get('country'),
       phone: form.get('phone'),
       email: form.get('email'),
     })
@@ -251,6 +254,7 @@ export default function SettingsPage() {
       const { project } = await createProject({
         name,
         city: String(data.get('city') ?? ''),
+        country: String(data.get('country') ?? ''),
         phone: String(data.get('phone') ?? ''),
         email: String(data.get('email') ?? ''),
       })
@@ -372,6 +376,7 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground">
                     {project.organizationName}
                     {project.city ? ` · ${project.city}` : ''}
+                    {project.country ? ` · ${project.country}` : ''}
                   </p>
                 </div>
                 {project.id === activeId && <Check className="h-4 w-4 flex-shrink-0 text-primary" />}
@@ -383,8 +388,18 @@ export default function SettingsPage() {
             <form onSubmit={submitProject} className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-border pt-5">
               <input name="name" required minLength={2} placeholder="New property name" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="city" placeholder="City" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <input name="country" placeholder="Country (e.g. India)" defaultValue="India" list="priya-country-suggestions" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="phone" placeholder="Phone" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="email" type="email" placeholder="Email" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <datalist id="priya-country-suggestions">
+                {PRIYA_COUNTRY_SUGGESTIONS.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+              <p className="md:col-span-2 -mt-1 text-xs text-muted-foreground">
+                Country determines Priya&apos;s default language: Hinglish (India), Indian-accented
+                English (nearby countries with Indian-diaspora clientele), or neutral English (elsewhere).
+              </p>
               <button
                 type="submit"
                 disabled={isCreating}
@@ -416,11 +431,17 @@ export default function SettingsPage() {
               <form onSubmit={submitProperty} className="space-y-4">
                 <input name="name" defaultValue={property.name} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                 <input name="address" defaultValue={property.address ?? ''} placeholder="Address" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   <input name="city" defaultValue={property.city ?? ''} placeholder="City" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+                  <input name="country" defaultValue={property.country ?? 'India'} placeholder="Country" list="priya-country-suggestions" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                   <input name="phone" defaultValue={property.phone ?? ''} placeholder="Phone" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                   <input name="email" defaultValue={property.email ?? ''} placeholder="Email" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Country determines Priya&apos;s (AI calling) default language: Hinglish (India),
+                  Indian-accented English (nearby countries with Indian-diaspora clientele), or neutral
+                  English (elsewhere).
+                </p>
                 <button className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Save Property</button>
               </form>
             )}

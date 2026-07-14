@@ -7,6 +7,7 @@ export const propertyUpdateSchema = z.object({
   name: z.string().min(2).optional(),
   address: z.preprocess(emptyToUndefined, z.string().optional()),
   city: z.preprocess(emptyToUndefined, z.string().optional()),
+  country: z.preprocess(emptyToUndefined, z.string().min(2).optional()),
   phone: z.preprocess(emptyToUndefined, z.string().optional()),
   email: z.preprocess(emptyToUndefined, z.string().email().optional()),
   logoUrl: z.preprocess(emptyToUndefined, z.string().url().optional()),
@@ -22,6 +23,7 @@ export const projectCreateSchema = z.object({
   name: z.string().min(2),
   address: z.preprocess(emptyToUndefined, z.string().optional()),
   city: z.preprocess(emptyToUndefined, z.string().optional()),
+  country: z.preprocess(emptyToUndefined, z.string().min(2).optional()),
   phone: z.preprocess(emptyToUndefined, z.string().optional()),
   email: z.preprocess(emptyToUndefined, z.string().email().optional()),
 })

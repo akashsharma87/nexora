@@ -52,7 +52,7 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
 
   const property = await prisma.property.findUnique({
     where: { id: aiCall.propertyId },
-    select: { name: true },
+    select: { name: true, country: true },
   })
 
   const callingServerUrl = process.env.CALLING_SERVER_URL ?? ''
@@ -74,6 +74,10 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
     ['name', aiCall.lead.name],
     ['eventType', aiCall.lead.eventType],
     ['propertyName', property?.name ?? 'our venue'],
+    // Property's country, not the lead's — this is a client-level (property) setting, since a
+    // property's leads are overwhelmingly from one region. Drives Priya's default language in
+    // calling-server/server.js (India → Hinglish, else → English).
+    ['country', property?.country ?? 'India'],
   ]
   if (aiCall.lead.eventDate) {
     params.push(['eventDate', aiCall.lead.eventDate.toISOString().split('T')[0]])

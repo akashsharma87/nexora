@@ -9,6 +9,9 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   hotelName: z.string().min(2),
+  // Drives Priya's default language for this property (India → Hinglish, else → English).
+  // Optional — Property.country defaults to "India" in the schema if omitted.
+  country: z.string().min(2).optional(),
 })
 
 function slugify(text: string) {
@@ -27,7 +30,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid input.' }, { status: 400 })
     }
 
-    const { name, email, password, hotelName } = parsed.data
+    const { name, email, password, hotelName, country } = parsed.data
 
     const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
     if (existing) {
@@ -49,7 +52,7 @@ export async function POST(req: NextRequest) {
       })
 
       const property = await tx.property.create({
-        data: { name: hotelName, organizationId: org.id },
+        data: { name: hotelName, organizationId: org.id, ...(country ? { country } : {}) },
       })
 
       const user = await tx.user.create({

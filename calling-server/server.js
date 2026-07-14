@@ -52,6 +52,11 @@ wss.on('connection', (twilioWs, req) => {
   let guestCount = url.searchParams.get('guestCount') ? Number(url.searchParams.get('guestCount')) : null
   let budgetMin = url.searchParams.get('budgetMin') ? Number(url.searchParams.get('budgetMin')) : null
   let budgetMax = url.searchParams.get('budgetMax') ? Number(url.searchParams.get('budgetMax')) : null
+  // The PROPERTY's country (not the lead's) — a property's leads are overwhelmingly from one
+  // region, so this is set once at the client-profile level (see prisma Property.country) rather
+  // than looked up per lead. Drives Priya's default language below (India → Hinglish, else →
+  // English). Defaults to India to match Property.country's schema default.
+  let country = url.searchParams.get('country') || 'India'
 
   console.log(`[call:${callId}] New Twilio connection — lead: ${leadName}`)
 
@@ -99,7 +104,7 @@ wss.on('connection', (twilioWs, req) => {
       session: {
         type: 'realtime',
         output_modalities: ['audio'],
-        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax }),
+        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country }),
         // NOTE: do NOT add a `reasoning` param here — gpt-realtime rejects it
         // ("Unsupported option for this model"), which would fail the whole
         // session.update and leave the call silent. It's a gpt-realtime-2.1-only option.
@@ -333,6 +338,7 @@ wss.on('connection', (twilioWs, req) => {
       if (cp.guestCount) guestCount = Number(cp.guestCount)
       if (cp.budgetMin) budgetMin = Number(cp.budgetMin)
       if (cp.budgetMax) budgetMax = Number(cp.budgetMax)
+      if (cp.country) country = cp.country
       started = true
 
       console.log(`[call:${callId}] ✅ Twilio stream started — SID: ${streamSid}, lead: ${leadName}, buffered chunks: ${audioBuffer.length}`)
@@ -432,11 +438,43 @@ function formatBudgetLabel(min, max) {
   return null
 }
 
-function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax }) {
+// Countries with a large Indian-diaspora hospitality clientele — leads there skew toward
+// English as the call language, but land better with a warm Indian-English accent lean
+// (vs. a fully neutral/Western accent) and may still slip into Hindi/Hinglish themselves.
+// Free text list, matched case-insensitively — same convention as Property.country.
+// NOTE: this list is a starting assumption, not a confirmed business rule — adjust as needed.
+const INDIAN_ACCENT_ENGLISH_COUNTRIES = new Set([
+  'uae', 'united arab emirates', 'saudi arabia', 'qatar', 'kuwait', 'oman', 'bahrain',
+  'nepal', 'bhutan', 'sri lanka', 'bangladesh', 'singapore', 'malaysia', 'maldives', 'mauritius',
+])
+
+// Three-tier language/accent selection, driven by the property's country:
+// - HINGLISH: India (default) — full Hinglish persona, Indian accent.
+// - INDIAN_ACCENT_ENGLISH: countries with heavy Indian-diaspora clientele — English by
+//   default, but with an Indian-English accent lean and willingness to mirror Hindi.
+// - NEUTRAL_ENGLISH: everywhere else — plain English, neutral accent, no Hindi.
+function getLanguageTier(country) {
+  const normalized = (country || '').trim().toLowerCase()
+  if (!normalized || normalized === 'india') return 'HINGLISH'
+  if (INDIAN_ACCENT_ENGLISH_COUNTRIES.has(normalized)) return 'INDIAN_ACCENT_ENGLISH'
+  return 'NEUTRAL_ENGLISH'
+}
+
+function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
   const roomStay = isRoomStayInquiry(sourceTab)
   const hasGuestCount = typeof guestCount === 'number' && guestCount > 0
   const budgetLabel = formatBudgetLabel(budgetMin, budgetMax)
+  // The property's country decides the DEFAULT language/accent, not the lead's — see the
+  // `country` comment where it's read from customParameters above. Three tiers (see
+  // getLanguageTier): HINGLISH (India) speaks Hinglish in an Indian accent; INDIAN_ACCENT_ENGLISH
+  // (Gulf/South-Asian countries with heavy Indian-diaspora clientele) speaks English by default
+  // but with an Indian-English accent lean and may mirror Hindi; NEUTRAL_ENGLISH (everywhere
+  // else) speaks plain English in a neutral accent with no Hindi at all.
+  const languageTier = getLanguageTier(country)
+  const useHindiLanguage = languageTier === 'HINGLISH' // controls actual Hindi/Hinglish wording
+  const useIndianAccent = languageTier !== 'NEUTRAL_ENGLISH' // controls voice/accent only
+  const isIndia = useHindiLanguage // kept for the (many) Hinglish-wording ternaries below
 
   // Say back what they actually asked about — "Kitty Party" or "Wedding" (the real tab name)
   // reads far more naturally to the lead than the generic word "banquet" for every call.
@@ -446,9 +484,36 @@ function buildInstructions({ leadName, eventType, propertyName, eventDate, sourc
     ? `You are Priya, a warm guest-relations executive calling ${leadName} from ${propertyName}. ${leadName} enquired about ${enquiryLabel}${dateClause}.`
     : `You are Priya, a warm banquet coordinator calling ${leadName} from ${propertyName}. ${leadName} submitted an enquiry about ${enquiryLabel}${dateClause}.`
 
-  const openingLine = roomStay
-    ? `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} mein stay ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
-    : `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
+  const openingLine = isIndia
+    ? (roomStay
+        ? `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} mein stay ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
+        : `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`)
+    : (roomStay
+        ? `Hello, is this ${leadName}? This is Priya calling from ${propertyName} — you'd sent us an enquiry about a stay in ${enquiryLabel}, is that right? Do you have a couple of minutes to chat?`
+        : `Hello, is this ${leadName}? This is Priya calling from ${propertyName} — you'd sent us an enquiry about ${enquiryLabel}, is that right? Do you have a couple of minutes to chat?`)
+
+  // Fixed example lines below (goodbye/busy/not-interested/unclear-audio/acknowledgements) are
+  // baked into the prompt as concrete phrasing, so they must switch with isIndia too — otherwise
+  // a non-India call would be told "default to English" while still being handed literal Hindi
+  // sentences to say verbatim.
+  const goodbyeLine = isIndia
+    ? 'Aapka bahut shukriya ji, aapka din shubh rahe. Namaste!'
+    : 'Thank you so much for your time — have a wonderful day, goodbye!'
+  const busyLine = isIndia
+    ? 'Koi baat nahi ji, main baad mein call kar loon? Subah theek rahega ya shaam?'
+    : 'No problem at all — should I call back another time? Would morning or evening suit you better?'
+  const notInterestedLine = isIndia
+    ? 'Bilkul samajh sakti hoon ji. Time dene ke liye shukriya!'
+    : 'Totally understand — thank you so much for your time!'
+  const unclearAudioLine = isIndia
+    ? 'Sorry ji, thodi awaaz cut ho gayi, ek baar phir bataiye?'
+    : "Sorry, the line broke up a little there — could you say that again?"
+  const acknowledgementBank = isIndia
+    ? '"achha", "okay", "theek hai", "hmm", "samajh gayi", "bilkul", "arre wah", "sahi hai", "great", "perfect", "oh nice", "acha acha", "ji bilkul", "wonderful"'
+    : '"okay", "got it", "sure", "lovely", "sounds good", "makes sense", "wonderful", "perfect", "I see", "great", "oh nice", "absolutely"'
+  const confirmKnownExample = isIndia
+    ? `maine dekha aapne ${hasGuestCount ? `around ${guestCount} guests` : 'kuch details'} mention kiya tha, sahi hai na?`
+    : `I saw you'd mentioned ${hasGuestCount ? `around ${guestCount} guests` : 'a few details already'} — is that right?`
 
   // What's already on file — Priya must CONFIRM these in passing, never ask cold, or she
   // sounds like she never read the lead's own submission (their #1 complaint about IVR-ish bots).
@@ -492,29 +557,37 @@ function buildInstructions({ leadName, eventType, propertyName, eventDate, sourc
 # ROLE & OBJECTIVE
 Have a genuine, friendly phone chat to understand ${roomStay ? 'their stay plans' : 'their event'} and gauge interest — then hand off warmly. You are a real person, NOT a bot, NOT a survey. You've done this hundreds of times; it's easy and natural.
 
-# ACCENT & VOICE (CRITICAL — follow strictly)
+${useIndianAccent ? `# ACCENT & VOICE (CRITICAL — follow strictly)
 - Speak in an authentic INDIAN ENGLISH accent — the natural way a warm, well-spoken young Indian woman from a metro city (Delhi/Mumbai) talks on the phone. Your vowels, rhythm and word-stress are Indian English.
 - This is explicitly NOT an American or British accent, and NOT a neutral "Western voice-assistant" accent. Never slip into US/UK pronunciation.
 - Pronounce Hindi words (Namaste, haan, achha, theek hai, ji, bilkul, shukriya) exactly as a native Hindi speaker would — never anglicise them.
-- Pronounce Indian names, cities and the property name the Indian way.
+- Pronounce Indian names, cities and the property name the Indian way.` : `# ACCENT & VOICE (CRITICAL — follow strictly)
+- Speak in a warm, clear, neutral English accent that is easy for an international caller to understand — natural and friendly, not a heavy regional accent in either direction.
+- Pronounce names, places and the property name the way a native English speaker naturally would.`}
 
-# LANGUAGE (CRITICAL — follow strictly)
+${isIndia ? `# LANGUAGE (CRITICAL — follow strictly)
 - Your DEFAULT language is natural Hinglish — Hindi mixed with English words the way urban Indians actually speak. Start in Hinglish and STAY in Hinglish for the whole call by default.
 - MIRROR THE LEAD. Match whatever language they use to you, turn by turn:
   - If they speak Hindi or Hinglish → you speak Hinglish. This is the default.
   - If a given reply from them is fully in English → you may reply in English for that turn, then naturally come back toward Hinglish.
 - Do NOT switch to full English on your own. Never decide "this person would prefer English" and switch unprompted — only ever follow their lead. When in doubt, stay in Hinglish.
-- Even when you do use English words, keep the Indian accent and the warm Hinglish texture — never turn into a formal, fully-English call-centre script.
+- Even when you do use English words, keep the Indian accent and the warm Hinglish texture — never turn into a formal, fully-English call-centre script.` : useIndianAccent ? `# LANGUAGE (CRITICAL — follow strictly)
+- This property's leads are outside India but many have an Indian-diaspora background, so Hindi may still land — even so, your DEFAULT and starting language is clear, natural English for the entire call.
+- Do NOT open in Hindi/Hinglish and do NOT use Hindi words like "Namaste" or "ji" as your greeting — start in English.
+- If the lead speaks Hindi or Hinglish to you, mirror them naturally for that stretch of the call, then ease back toward English — never assume Hindi from the start.` : `# LANGUAGE (CRITICAL — follow strictly)
+- This property's leads are based outside India and will only understand English. Your DEFAULT and ONLY language is clear, natural English for the entire call.
+- Do NOT open in Hindi/Hinglish and do NOT use Hindi words like "Namaste" or "ji" — even as a greeting. Stay in plain, warm English throughout.
+- If the lead unexpectedly speaks Hindi/Hinglish to you, you may mirror a little, but default back to English — never assume Hindi for this call.`}
 
 # PERSONALITY & TONE
 - Warm, friendly, lightly chatty; genuinely curious about ${roomStay ? 'their stay' : 'their event'}. Smile in your voice.
-- Talk like a real Indian person on the phone: natural Hinglish, spoken in an Indian accent (follow the LANGUAGE rule above for when English is okay).
+- Talk like a real, warm person on the phone${useHindiLanguage ? ': natural Hinglish, spoken in an Indian accent (follow the LANGUAGE rule above for when English is okay)' : useIndianAccent ? ', in clear English spoken with a warm Indian-English accent (follow the LANGUAGE rule above)' : ', in clear English (follow the LANGUAGE rule above)'}.
 - Keep EVERY turn short — 1 to 2 sentences, one idea at a time. Then STOP and listen. Never monologue. Never stack two questions.
 - Match their energy: excited when they share happy news, calm and reassuring if they sound unsure.
 
 # VARIETY (VERY IMPORTANT — do not sound robotic)
-- NEVER start two replies with the same word, and never reuse the same acknowledgement twice in a row. You have been sounding repetitive by always saying "haan ji" — actively avoid that.
-- Rotate your acknowledgements naturally across the call. Pull from a wide range, e.g.: "achha", "okay", "theek hai", "hmm", "samajh gayi", "bilkul", "arre wah", "sahi hai", "great", "perfect", "oh nice", "acha acha", "ji bilkul", "wonderful". Pick whatever genuinely fits that moment — don't cycle a fixed list mechanically.
+- NEVER start two replies with the same word, and never reuse the same acknowledgement twice in a row.${isIndia ? ' You have been sounding repetitive by always saying "haan ji" — actively avoid that.' : ''}
+- Rotate your acknowledgements naturally across the call. Pull from a wide range, e.g.: ${acknowledgementBank}. Pick whatever genuinely fits that moment — don't cycle a fixed list mechanically.
 - Vary sentence structure and phrasing too. Never read anything word-for-word. Rephrase questions freshly each time.
 - Occasional tiny natural disfluencies are good ("umm", "matlab", a short pause) — but sparingly.
 
@@ -524,10 +597,10 @@ Have a genuine, friendly phone chat to understand ${roomStay ? 'their stay plans
 
 # HANDLING INTERRUPTIONS
 - If they talk while you're speaking, STOP instantly and listen — never talk over them or finish your old sentence.
-- When you resume, do NOT restart your previous sentence and do NOT default to "haan ji". React to what they actually just said, with a fresh, fitting acknowledgement.
+- When you resume, do NOT restart your previous sentence${isIndia ? ' and do NOT default to "haan ji"' : ''}. React to what they actually just said, with a fresh, fitting acknowledgement.
 
 # UNCLEAR AUDIO
-- Only respond to what you clearly heard. If it's garbled or you're unsure, ask them warmly to repeat — "Sorry ji, thodi awaaz cut ho gayi, ek baar phir bataiye?" Never guess at content you didn't catch.
+- Only respond to what you clearly heard. If it's garbled or you're unsure, ask them warmly to repeat — "${unclearAudioLine}" Never guess at content you didn't catch.
 - If what comes through is nonsensical, unrelated to the conversation, in a script/language that makes no sense in context, or sounds like a system/automated message (not something a person would naturally say) — that is NOT the lead speaking. Do NOT interpret it as them being busy, distracted, unavailable, or wanting to end the call. Just gently ask them to repeat themselves, same as any unclear audio.
 - Never assume the lead is busy/unavailable/wanting a callback unless they clearly and explicitly say so in words you understood.
 
@@ -536,7 +609,7 @@ Have a genuine, friendly phone chat to understand ${roomStay ? 'their stay plans
 - NEVER attach "ji" directly after their name (e.g. never say "${leadName} ji"). Say the name plainly on its own — "${leadName}, ..." — or drop the name and use "ji" elsewhere in the sentence instead. "ji" is fine as a general polite word elsewhere, just never stuck right after their name.
 
 ${knownParts.length > 0
-  ? `# WHAT YOU ALREADY KNOW (from their enquiry form — CONFIRM these naturally in passing, e.g. "maine dekha aapne ${hasGuestCount ? `around ${guestCount} guests` : 'kuch details'} mention kiya tha, sahi hai na?" — do NOT ask about these as if you have no idea, that makes it obvious you never read their submission)`
+  ? `# WHAT YOU ALREADY KNOW (from their enquiry form — CONFIRM these naturally in passing, e.g. "${confirmKnownExample}" — do NOT ask about these as if you have no idea, that makes it obvious you never read their submission)`
   : '# WHAT YOU ALREADY KNOW (from their enquiry form)'}
 ${knownDetailsSection}
 
@@ -552,13 +625,13 @@ Weave these in like a friendly, curious chat — never fire them one after anoth
 # ENDING THE CALL (important — always close cleanly, never trail off)
 Every call must reach a clear ending — never go quiet waiting for them once you've said what you need to. When you're ready to close:
 1. Say your closing message naturally. For an interested lead: ${closingLine}
-2. Then say a warm, complete goodbye — e.g. "Aapka bahut shukriya ji, aapka din shubh rahe. Namaste!" This is a definite sign-off, not a question. Do NOT ask anything after it or wait for them to reply.
-3. As your VERY LAST action, in the same turn right after the spoken goodbye, call the report_outcome function. Calling it ends the call — so only call it once you have truly finished speaking your goodbye.
+2. Then say a warm, complete goodbye — e.g. "${goodbyeLine}" This is a definite sign-off, not a question. Do NOT ask anything after it or wait for them to reply. Speak the ENTIRE goodbye sentence out loud, start to finish, before doing anything else.
+3. Only once the goodbye sentence has been fully spoken, call the report_outcome function as your very last action. Calling it hangs up the call immediately — so never call it before or during the goodbye, only strictly after.
 
 # BOUNDARIES
 - Keep the whole call under ~3 minutes — efficient but never rushed or pushy.
-- If busy: warmly offer a callback ("Koi baat nahi ji, main baad mein call kar loon? Subah theek rahega ya shaam?"), then give your goodbye and call report_outcome.
-- If not interested: be gracious ("Bilkul samajh sakti hoon ji. Time dene ke liye shukriya!"), then goodbye and call report_outcome.
+- If busy: warmly offer a callback ("${busyLine}"), then give your goodbye and call report_outcome.
+- If not interested: be gracious ("${notInterestedLine}"), then goodbye and call report_outcome.
 - If wrong number: apologise sincerely, brief goodbye, then call report_outcome.
 - Never say robotic things like "noted" or "recorded" — just react like a person.`
 }
@@ -567,7 +640,10 @@ const outcomeReportTool = {
   type: 'function',
   name: 'report_outcome',
   description:
-    'Report the qualification outcome. Call this at the end of EVERY call before saying goodbye.',
+    'Report the qualification outcome. Call this ONLY as your very last action of the call — ' +
+    'AFTER you have already spoken your complete goodbye sentence out loud, never before it and ' +
+    'never mid-sentence. Calling this hangs up the call immediately, so make sure your goodbye is ' +
+    'fully spoken first.',
   parameters: {
     type: 'object',
     properties: {

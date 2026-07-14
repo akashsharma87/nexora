@@ -9,6 +9,7 @@ export type Project = {
   id: string
   name: string
   city?: string | null
+  country?: string | null
   organizationName: string
 }
 
@@ -20,6 +21,7 @@ type ProjectsResponse = {
 export type NewProjectInput = {
   name: string
   city?: string
+  country?: string
   phone?: string
   email?: string
 }

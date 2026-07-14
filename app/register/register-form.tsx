@@ -4,9 +4,12 @@ import { FormEvent, useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { Building2, Lock, Mail, User } from 'lucide-react'
 
+import { PRIYA_COUNTRY_SUGGESTIONS } from '@/lib/priya-country-suggestions'
+
 export function RegisterForm() {
   const [name, setName] = useState('')
   const [hotelName, setHotelName] = useState('')
+  const [country, setCountry] = useState('India')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -21,7 +24,7 @@ export function RegisterForm() {
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, hotelName, email, password }),
+        body: JSON.stringify({ name, hotelName, country, email, password }),
       })
 
       const data = await res.json()
@@ -82,6 +85,31 @@ export function RegisterForm() {
             className="w-full bg-transparent text-sm outline-none"
             required
           />
+        </span>
+      </label>
+
+      <label className="block">
+        <span className="text-sm font-medium text-foreground">Country</span>
+        <span className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
+          <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+          <input
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            type="text"
+            list="priya-country-suggestions"
+            placeholder="e.g. India"
+            className="w-full bg-transparent text-sm outline-none"
+            required
+          />
+        </span>
+        <datalist id="priya-country-suggestions">
+          {PRIYA_COUNTRY_SUGGESTIONS.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <span className="mt-1 block text-xs text-muted-foreground">
+          Where your leads are based — determines whether Priya (AI calling/WhatsApp) defaults to
+          Hinglish or English (or an Indian-accented English for nearby countries).
         </span>
       </label>
 
