@@ -141,7 +141,7 @@ wss.on('connection', (twilioWs, req) => {
           },
           output: {
             format: { type: 'audio/pcmu' },
-            voice: 'marin', // most natural female voice for gpt-realtime (GA)
+            voice: getVoice(country), // marin for English tiers; coral for Hinglish — see getVoice
           },
         },
       },
@@ -561,6 +561,15 @@ function getLanguageTier(country) {
   return 'NEUTRAL_ENGLISH'
 }
 
+// Voice is chosen per language tier. `marin` is the most natural voice for the English tiers,
+// but on the Hinglish tier it came across as over-sweet/uncanny on Hindi words (team feedback),
+// so Hinglish uses `coral` (warmer, more grounded). Both are confirmed-valid gpt-realtime voices;
+// picking an invalid name would fail session.update and leave the call silent, so only ever use
+// names verified against the account. English tiers deliberately keep marin (it works great there).
+function getVoice(country) {
+  return getLanguageTier(country) === 'HINGLISH' ? 'coral' : 'marin'
+}
+
 function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, knowledgeFacts }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
   const roomStay = isRoomStayInquiry(sourceTab)
@@ -699,7 +708,7 @@ ${isIndia ? `# LANGUAGE (CRITICAL — follow strictly)
 
 # HANDLING INTERRUPTIONS
 - If they talk while you're speaking, STOP instantly and listen — never talk over them or finish your old sentence.
-- When you resume, do NOT restart your previous sentence${isIndia ? ' and do NOT default to "haan ji"' : ''}. React to what they actually just said, with a fresh, fitting acknowledgement.
+- When you resume, do NOT restart your previous sentence. Crucially, do NOT open your reply with a stock acknowledgement or filler${isIndia ? ' — no "haan ji", "theek hai", "samajh gayi", "achha", "bahut badhiya" or similar as the first thing out of your mouth' : ''}. When someone interrupts you, reflexively agreeing/acknowledging first sounds robotic and dismissive. Instead respond DIRECTLY and naturally to the substance of what they just said, the way a real person does when cut off mid-thought.
 - This applies EVEN during your goodbye. If they speak up while or right after you're signing off — a last question, "wait", anything — STOP, drop the goodbye, and answer them. Never end the call while they are still trying to say something. Only close once they are truly done.
 
 # OFF-TOPIC / OUT-OF-SCOPE QUESTIONS (important)
