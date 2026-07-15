@@ -60,6 +60,11 @@ wss.on('connection', (twilioWs, req) => {
   // Lets this server fetch the property's Knowledge Base key facts itself (see
   // fetchKnowledgeFacts below) rather than trying to pass the facts through a <Parameter>.
   let propertyId = url.searchParams.get('propertyId') || null
+  // The property's real city/address (Property.city/address — separate from the knowledge-base
+  // scrape, which may miss it or lose it to the ~20-fact cap). Used to build a guaranteed LOCATION
+  // instruction so Priya never just agrees when a caller names the wrong city/area.
+  let propertyCity = url.searchParams.get('propertyCity') || null
+  let propertyAddress = url.searchParams.get('propertyAddress') || null
 
   console.log(`[call:${callId}] New Twilio connection — lead: ${leadName}`)
 
@@ -117,7 +122,7 @@ wss.on('connection', (twilioWs, req) => {
       session: {
         type: 'realtime',
         output_modalities: ['audio'],
-        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, knowledgeFacts }),
+        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, propertyCity, propertyAddress, knowledgeFacts }),
         // NOTE: do NOT add a `reasoning` param here — gpt-realtime rejects it
         // ("Unsupported option for this model"), which would fail the whole
         // session.update and leave the call silent. It's a gpt-realtime-2.1-only option.
@@ -370,6 +375,8 @@ wss.on('connection', (twilioWs, req) => {
       if (cp.budgetMax) budgetMax = Number(cp.budgetMax)
       if (cp.country) country = cp.country
       if (cp.propertyId) propertyId = cp.propertyId
+      if (cp.propertyCity) propertyCity = cp.propertyCity
+      if (cp.propertyAddress) propertyAddress = cp.propertyAddress
       started = true
 
       // Kick the knowledge-facts fetch the moment propertyId is known, in parallel with the
@@ -580,12 +587,22 @@ function getVoice(country) {
   return getLanguageTier(country) === 'HINGLISH' ? 'coral' : 'marin'
 }
 
-function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, knowledgeFacts }) {
+function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, propertyCity, propertyAddress, knowledgeFacts }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
   const roomStay = isRoomStayInquiry(sourceTab)
   const hasGuestCount = typeof guestCount === 'number' && guestCount > 0
   const budgetLabel = formatBudgetLabel(budgetMin, budgetMax)
   const knowledgeFactsList = renderKnowledgeFacts(knowledgeFacts)
+  // Guaranteed location fact — independent of the knowledge-base scrape (which may miss the
+  // address entirely, or lose it to the ~20-fact cap on a large site). Only built when staff have
+  // actually filled in Property.city/address on Settings; a property with neither gets no section
+  // at all rather than a broken half-sentence, and country alone (always set, defaults to "India")
+  // is too vague on its own to be worth asserting.
+  const locationLine = propertyAddress
+    ? `${propertyAddress}${propertyCity ? `, ${propertyCity}` : ''}, ${country}`
+    : propertyCity
+      ? `${propertyCity}, ${country}`
+      : null
   // The property's country decides the DEFAULT language/accent, not the lead's — see the
   // `country` comment where it's read from customParameters above. Three tiers (see
   // getLanguageTier): HINGLISH (India) speaks Hinglish in an Indian accent; INDIAN_ACCENT_ENGLISH
@@ -735,6 +752,11 @@ ${isIndia ? `# LANGUAGE (CRITICAL — follow strictly)
 - ${leadName} is their first name only — always use exactly this, never guess at a surname or a different form of it.
 - NEVER attach "ji" directly after their name (e.g. never say "${leadName} ji"). Say the name plainly on its own — "${leadName}, ..." — or drop the name and use "ji" elsewhere in the sentence instead. "ji" is fine as a general polite word elsewhere, just never stuck right after their name.
 
+${locationLine ? `# LOCATION (CRITICAL — never agree to a wrong one)
+${propertyName} is located at ${locationLine}. This is the ONLY location this venue operates from.
+- If the lead assumes, names, or asks to confirm a different city, area, or landmark as the venue's location, do NOT just agree or say "yes" to be agreeable — that is a real error, not small talk. Politely and clearly correct them with the actual location above.
+- Only ever confirm proximity/directions relative to the actual location above. Never invent distances, travel times, or nearby landmarks that aren't part of what you know.
+` : ''}
 ${knowledgeFactsList ? `# ABOUT THE VENUE (KNOWLEDGE BASE — use naturally in conversation)
 These are verified facts about the venue. Use them to answer the lead's questions confidently and
 specifically. But:

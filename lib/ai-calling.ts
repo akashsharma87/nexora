@@ -52,7 +52,7 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
 
   const property = await prisma.property.findUnique({
     where: { id: aiCall.propertyId },
-    select: { name: true, country: true },
+    select: { name: true, country: true, address: true, city: true },
   })
 
   const callingServerUrl = process.env.CALLING_SERVER_URL ?? ''
@@ -84,6 +84,12 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
     // source of truth in the DB rather than a snapshot baked into the call at dial time.
     ['propertyId', aiCall.propertyId],
   ]
+  // The property's actual city/address, if staff filled it in on Settings — passed as a
+  // guaranteed fact (not subject to the knowledge-base's ~20-fact cap, or to the website scrape
+  // ever surfacing it at all) so Priya always knows exactly where the venue is and can correct a
+  // caller who assumes the wrong city/area, instead of just agreeing to whatever they name.
+  if (property?.city) params.push(['propertyCity', property.city])
+  if (property?.address) params.push(['propertyAddress', property.address])
   if (aiCall.lead.eventDate) {
     params.push(['eventDate', aiCall.lead.eventDate.toISOString().split('T')[0]])
   }
