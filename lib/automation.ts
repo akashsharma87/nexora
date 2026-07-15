@@ -234,7 +234,13 @@ export async function sendPostCallWhatsApp(params: {
     where: { id: params.propertyId },
     select: { autoWhatsappNurtureEnabled: true },
   })
-  if (!property?.autoWhatsappNurtureEnabled) return { sent: false }
+  if (!property?.autoWhatsappNurtureEnabled) {
+    // This is the #1 reason a post-call WhatsApp "never sends": the toggle defaults to false,
+    // so a property that never opted in on /whatsapp silently sends nothing here. Log it loudly
+    // rather than returning in silence, so it's diagnosable instead of looking like a dead feature.
+    console.log(`[sendPostCallWhatsApp] SKIPPED — property ${params.propertyId} has autoWhatsappNurtureEnabled=OFF (lead ${params.leadId}). Enable WhatsApp automation on the /whatsapp settings page to send post-call messages.`)
+    return { sent: false }
+  }
 
   const track = nurtureTrack(params.sourceTab)
   const hook = buildNurtureHook(track)

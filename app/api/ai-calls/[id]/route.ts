@@ -78,6 +78,8 @@ async function handleOutcomeUpdate(
   })
   if (!aiCall) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  console.log(`[ai-call outcome] callId=${aiCallId} outcome=${body.outcome} score=${body.qualifiedScore} lead=${aiCall.leadId} property=${aiCall.propertyId}`)
+
   // Update AiCall record
   await prisma.aiCall.update({
     where: { id: aiCallId },
@@ -100,7 +102,10 @@ async function handleOutcomeUpdate(
     select: { id: true, name: true },
   })
 
-  if (!systemUser) return NextResponse.json({ updated: true })
+  if (!systemUser) {
+    console.log(`[ai-call outcome] No OWNER/MANAGER system user for org of property ${aiCall.propertyId} — skipping post-call automation (tasks + WhatsApp) for lead ${aiCall.leadId}`)
+    return NextResponse.json({ updated: true })
+  }
 
   // Priya's follow-up tasks go to the project's Internet Moguls team (round-robin
   // across mogul-1/2/3, whoever has fewest open tasks), not straight to an

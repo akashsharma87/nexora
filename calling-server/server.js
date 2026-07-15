@@ -409,8 +409,18 @@ wss.on('connection', (twilioWs, req) => {
 
     // Twilio echoes our hang-up mark once the goodbye audio has finished playing.
     if (event.event === 'mark' && event.mark?.name === HANGUP_MARK) {
-      console.log(`[call:${callId}] ✅ Goodbye played — ending call`)
-      endCall()
+      // A barge-in between placing the mark and Twilio echoing it back aborts the hang-up
+      // (input_audio_buffer.speech_started resets pendingHangup). The echo can still arrive
+      // right after — often near-simultaneously, because the lead tends to speak up just as
+      // the goodbye finishes playing — so only actually end the call if the hang-up is STILL
+      // intended. Otherwise a stale mark echo would tear down a call the lead just re-engaged
+      // (the exact bug: interrupting Priya's closing line still dropped the call).
+      if (pendingHangup) {
+        console.log(`[call:${callId}] ✅ Goodbye played — ending call`)
+        endCall()
+      } else {
+        console.log(`[call:${callId}] Hang-up mark echoed but hang-up was aborted (barge-in) — staying on, re-engaging`)
+      }
     }
 
     if (event.event === 'stop') {
