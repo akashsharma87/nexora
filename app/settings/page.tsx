@@ -17,6 +17,7 @@ type Property = {
   address?: string | null
   city?: string | null
   country?: string | null
+  currency?: string | null
   phone?: string | null
   email?: string | null
   websiteUrl?: string | null
@@ -207,6 +208,7 @@ export default function SettingsPage() {
       address: form.get('address'),
       city: form.get('city'),
       country: form.get('country'),
+      currency: form.get('currency'),
       phone: form.get('phone'),
       email: form.get('email'),
       websiteUrl: form.get('websiteUrl'),
@@ -257,6 +259,7 @@ export default function SettingsPage() {
         name,
         city: String(data.get('city') ?? ''),
         country: String(data.get('country') ?? ''),
+        currency: String(data.get('currency') ?? ''),
         phone: String(data.get('phone') ?? ''),
         email: String(data.get('email') ?? ''),
         websiteUrl: String(data.get('websiteUrl') ?? ''),
@@ -392,6 +395,7 @@ export default function SettingsPage() {
               <input name="name" required minLength={2} placeholder="New property name" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="city" placeholder="City" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="country" placeholder="Country (e.g. India)" defaultValue="India" list="priya-country-suggestions" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <input name="currency" placeholder="Currency code (e.g. INR, KES)" defaultValue="INR" maxLength={3} className="rounded-lg border border-border bg-background px-3 py-2 text-sm uppercase" />
               <input name="phone" placeholder="Phone" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="email" type="email" placeholder="Email" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
               <input name="websiteUrl" type="url" placeholder="Website (e.g. https://venue.com)" className="md:col-span-2 rounded-lg border border-border bg-background px-3 py-2 text-sm" />
@@ -403,6 +407,8 @@ export default function SettingsPage() {
               <p className="md:col-span-2 -mt-1 text-xs text-muted-foreground">
                 Country determines Priya&apos;s default language: Hinglish (India), Indian-accented
                 English (nearby countries with Indian-diaspora clientele), or neutral English (elsewhere).
+                Currency (ISO code, e.g. KES for Kenya) controls how budgets and revenue are displayed —
+                set it to match the currency used in this property&apos;s own lead sheet.
                 Website is used to build Priya&apos;s Knowledge Base about the venue.
               </p>
               <button
@@ -436,9 +442,10 @@ export default function SettingsPage() {
               <form onSubmit={submitProperty} className="space-y-4">
                 <input name="name" defaultValue={property.name} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                 <input name="address" defaultValue={property.address ?? ''} placeholder="Address" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                   <input name="city" defaultValue={property.city ?? ''} placeholder="City" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                   <input name="country" defaultValue={property.country ?? 'India'} placeholder="Country" list="priya-country-suggestions" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+                  <input name="currency" defaultValue={property.currency ?? 'INR'} placeholder="Currency (e.g. KES)" maxLength={3} className="rounded-lg border border-border bg-background px-3 py-2 text-sm uppercase" />
                   <input name="phone" defaultValue={property.phone ?? ''} placeholder="Phone" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                   <input name="email" defaultValue={property.email ?? ''} placeholder="Email" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                 </div>
@@ -452,8 +459,10 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   Country determines Priya&apos;s (AI calling) default language: Hinglish (India),
                   Indian-accented English (nearby countries with Indian-diaspora clientele), or neutral
-                  English (elsewhere). Priya uses the website to build a Knowledge Base so she can
-                  answer questions about the venue — see the Knowledge Base page to build/edit it.
+                  English (elsewhere). Currency (ISO code, e.g. KES) controls how budgets and revenue
+                  are displayed across Leads, Analytics, and Proposals — set it to match this property&apos;s
+                  own lead sheet, not the agency&apos;s currency. Priya uses the website to build a Knowledge
+                  Base so she can answer questions about the venue — see the Knowledge Base page to build/edit it.
                 </p>
                 <button className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Save Property</button>
               </form>

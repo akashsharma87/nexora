@@ -61,18 +61,39 @@ export function formatHoursAgo(hours: number): string {
   return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`
 }
 
-export function formatCurrency(value: number, unit: 'rupees' | 'lakhs' = 'rupees') {
-  const rupees = unit === 'lakhs' ? value * 100000 : value
+// `currency` is the property's own currency (Property.currency, ISO 4217 — e.g. "KES" for a
+// Nairobi client), NOT assumed to be INR. The `unit: 'lakhs'` convention (values pre-multiplied
+// by 100,000, e.g. Google Sheets budget columns like "budget (lakhs)") is an India-specific sheet
+// habit and must ONLY ever apply to INR — applying it to a KES/USD/etc figure would inflate a
+// modest amount 100,000x and display it as if it were crores of rupees.
+export function formatCurrency(value: number, unit: 'rupees' | 'lakhs' = 'rupees', currency: string = 'INR') {
+  const code = (currency || 'INR').trim().toUpperCase()
 
-  if (rupees >= 10000000) {
-    return `₹${(rupees / 10000000).toFixed(1)} Cr`
+  if (code === 'INR') {
+    const rupees = unit === 'lakhs' ? value * 100000 : value
+
+    if (rupees >= 10000000) {
+      return `₹${(rupees / 10000000).toFixed(1)} Cr`
+    }
+
+    if (rupees >= 100000) {
+      return `₹${(rupees / 100000).toFixed(1)} L`
+    }
+
+    return `₹${new Intl.NumberFormat('en-IN').format(Math.round(rupees))}`
   }
 
-  if (rupees >= 100000) {
-    return `₹${(rupees / 100000).toFixed(1)} L`
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: code,
+      maximumFractionDigits: 0,
+    }).format(value)
+  } catch {
+    // Not a currency code Intl recognises (typo, or a non-ISO placeholder someone typed into
+    // Settings) — fall back to a plain grouped number rather than throwing.
+    return `${code} ${new Intl.NumberFormat('en-US').format(Math.round(value))}`
   }
-
-  return `₹${new Intl.NumberFormat('en-IN').format(Math.round(rupees))}`
 }
 
 export function formatDate(value?: string | Date | null) {

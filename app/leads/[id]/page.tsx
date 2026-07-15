@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { ArrowLeft, CheckSquare, Edit2, Loader2, MessageSquare, Phone, Plus, Save, Send, Square, X } from 'lucide-react'
 
+import { useActiveProject } from '@/components/active-project-provider'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { eventTypeLabels, formatCurrency, formatDate, leadStageLabels, sourceLabels } from '@/lib/format'
 
@@ -86,6 +87,8 @@ const priorityColors: Record<string, string> = {
 }
 
 export default function LeadDetailPage() {
+  const { activeProject } = useActiveProject()
+  const currency = activeProject?.currency ?? 'INR'
   const params = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const [stageNote, setStageNote] = useState('')
@@ -350,7 +353,7 @@ export default function LeadDetailPage() {
                   </div>
                   <div className="rounded-lg bg-muted/50 p-4">
                     <p className="text-xs text-muted-foreground">Budget</p>
-                    <p className="text-2xl font-bold text-foreground">{lead.budgetMax ? formatCurrency(Number(lead.budgetMax), 'lakhs') : 'Not set'}</p>
+                    <p className="text-2xl font-bold text-foreground">{lead.budgetMax ? formatCurrency(Number(lead.budgetMax), 'lakhs', currency) : 'Not set'}</p>
                   </div>
                 </div>
 

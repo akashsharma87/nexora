@@ -28,6 +28,12 @@ model Property {
   // "India" defaults to Hinglish, anything else defaults to English. Free text, not an enum —
   // matched case-insensitively against "india" rather than constrained to a fixed list.
   country              String            @default("India")
+  // ISO 4217 currency code the property's own budget/revenue figures are denominated in (e.g. a
+  // Kenya-based client's lead sheet holds KES amounts, not INR). Free text like `country`, not an
+  // enum. Drives lib/format.ts's formatCurrency — INR keeps the existing ₹ Lakh/Crore convention;
+  // any other code is formatted as a plain amount in that currency, with NO Lakh-style
+  // multiplication (that convention is an India-only sheet habit, see formatCurrency).
+  currency             String            @default("INR")
   phone                String?
   email                String?
   logoUrl              String?

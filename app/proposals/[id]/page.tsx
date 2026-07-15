@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { ArrowLeft, Download, Loader2, Mail, MessageSquare, Sparkles } from 'lucide-react'
 
+import { useActiveProject } from '@/components/active-project-provider'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { eventTypeLabels, formatCurrency, formatDate } from '@/lib/format'
 
@@ -39,6 +40,8 @@ async function fetchProposal(id: string): Promise<{ proposal: ProposalDetail }> 
 }
 
 export default function ProposalDetailPage() {
+  const { activeProject } = useActiveProject()
+  const currency = activeProject?.currency ?? 'INR'
   const params = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const { data, isLoading, isError } = useQuery({ queryKey: ['proposal', params.id], queryFn: () => fetchProposal(params.id) })
@@ -195,7 +198,7 @@ export default function ProposalDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="rounded-lg bg-muted/50 p-4">
                     <p className="text-xs text-muted-foreground">Amount</p>
-                    <p className="text-xl font-bold text-foreground">{proposal.amount ? formatCurrency(Number(proposal.amount)) : 'Not set'}</p>
+                    <p className="text-xl font-bold text-foreground">{proposal.amount ? formatCurrency(Number(proposal.amount), 'rupees', currency) : 'Not set'}</p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-4">
                     <p className="text-xs text-muted-foreground">Guests</p>

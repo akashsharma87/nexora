@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, BarChart3, Briefcase, Bell, Calendar, CheckSquare, ClipboardList, Loader2, TrendingUp, Users } from 'lucide-react'
 
 import { AchievementBadge } from '@/components/achievement-badge'
+import { useActiveProject } from '@/components/active-project-provider'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { FlipKpiCard } from '@/components/flip-kpi-card'
 import { KPICard } from '@/components/kpi-card'
@@ -91,6 +92,8 @@ async function fetchSourceTabs(): Promise<{ tabs: { tab: string; count: number }
 
 export default function Dashboard() {
   const queryClient = useQueryClient()
+  const { activeProject } = useActiveProject()
+  const currency = activeProject?.currency ?? 'INR'
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
@@ -213,7 +216,7 @@ export default function Dashboard() {
               <KPICard
                 icon={BarChart3}
                 label="Revenue Pipeline"
-                value={formatCurrency(data.metrics.revenuePipelineLakhs, 'lakhs')}
+                value={formatCurrency(data.metrics.revenuePipelineLakhs, 'lakhs', currency)}
                 change="+ live"
                 trend="up"
                 subtext="Open lead budget"
@@ -449,7 +452,7 @@ export default function Dashboard() {
                         </td>
                         <td className="py-4 text-muted-foreground">{lead.phone}</td>
                         <td className="py-4 text-muted-foreground">{formatDate(lead.eventDate)}</td>
-                        <td className="py-4 text-muted-foreground">{lead.budgetMax ? formatCurrency(Number(lead.budgetMax), 'lakhs') : 'Not set'}</td>
+                        <td className="py-4 text-muted-foreground">{lead.budgetMax ? formatCurrency(Number(lead.budgetMax), 'lakhs', currency) : 'Not set'}</td>
                         <td className="py-4 text-muted-foreground">{leadStageLabels[lead.stage] ?? lead.stage}</td>
                         <td className="py-4 text-muted-foreground">{sourceLabels[lead.source] ?? lead.source}</td>
                       </tr>

@@ -10,6 +10,7 @@ export type Project = {
   name: string
   city?: string | null
   country?: string | null
+  currency?: string | null
   organizationName: string
 }
 
@@ -22,6 +23,7 @@ export type NewProjectInput = {
   name: string
   city?: string
   country?: string
+  currency?: string
   phone?: string
   email?: string
   websiteUrl?: string

@@ -6,6 +6,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 import { AlertCircle, Calendar, CheckCircle, Download, Loader2 } from 'lucide-react'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
+import { useActiveProject } from '@/components/active-project-provider'
 import { eventTypeLabels, formatCurrency, leadStageLabels, sourceLabels } from '@/lib/format'
 
 async function apiGet<T>(url: string): Promise<T> {
@@ -117,6 +118,8 @@ const TEMPLATE_TYPE_LABELS: Record<string, string> = {
 }
 
 export default function AnalyticsPage() {
+  const { activeProject } = useActiveProject()
+  const currency = activeProject?.currency ?? 'INR'
   const [activeTab, setActiveTab] = useState<'overview' | 'funnel' | 'campaigns' | 'revenue' | 'activity'>('overview')
   const [dashboardQuery, funnelQuery, sourcesQuery] = useQueries({
     queries: [
@@ -199,7 +202,7 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { label: 'Lead to Booking Conversion', value: `${conversionRate.toFixed(1)}%`, target: '28-40%' },
-              { label: 'Revenue Pipeline', value: formatCurrency(dashboard.metrics.revenuePipelineLakhs, 'lakhs'), target: 'Rs 20-50L annual lift' },
+              { label: 'Revenue Pipeline', value: formatCurrency(dashboard.metrics.revenuePipelineLakhs, 'lakhs', currency), target: 'Rs 20-50L annual lift' },
               { label: 'Proposals Sent', value: dashboard.metrics.proposalsSent, target: 'Growing weekly' },
               { label: 'ROI Estimate', value: `${roi}%`, target: '300%+' },
             ].map((metric) => (
@@ -355,7 +358,7 @@ export default function AnalyticsPage() {
                       <Cell key={entry.source} fill={colors[index % colors.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                  <Tooltip formatter={(value) => formatCurrency(Number(value), 'rupees', currency)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -366,7 +369,7 @@ export default function AnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                   <XAxis dataKey={(row) => eventTypeLabels[row.eventType] ?? row.eventType} stroke="var(--color-muted-foreground)" />
                   <YAxis stroke="var(--color-muted-foreground)" />
-                  <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                  <Tooltip formatter={(value) => formatCurrency(Number(value), 'rupees', currency)} />
                   <Bar dataKey="revenue" fill="var(--color-accent)" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -398,11 +401,11 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="bg-card rounded-lg border border-border p-6">
                     <h3 className="text-sm font-medium text-muted-foreground mb-2">Revenue Pipeline (Open Leads)</h3>
-                    <p className="text-3xl font-bold text-foreground">{formatCurrency(activityQuery.data.revenue.pipelineValue)}</p>
+                    <p className="text-3xl font-bold text-foreground">{formatCurrency(activityQuery.data.revenue.pipelineValue, 'rupees', currency)}</p>
                   </div>
                   <div className="bg-card rounded-lg border border-border p-6">
                     <h3 className="text-sm font-medium text-muted-foreground mb-2">Booked Revenue (Accepted)</h3>
-                    <p className="text-3xl font-bold text-foreground">{formatCurrency(activityQuery.data.revenue.bookedRevenue)}</p>
+                    <p className="text-3xl font-bold text-foreground">{formatCurrency(activityQuery.data.revenue.bookedRevenue, 'rupees', currency)}</p>
                   </div>
                 </div>
 

@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Download, Loader2, Plus, Search, Upload } from 'lucide-react'
 
+import { useActiveProject } from '@/components/active-project-provider'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { formatCurrency, formatDate, formatHoursAgo, eventTypeLabels, leadStageLabels, sourceLabels } from '@/lib/format'
 
@@ -44,6 +45,8 @@ const stages = ['ALL', 'NEW', 'CONTACTED', 'FOLLOW_UP', 'SITE_VISIT', 'PROPOSAL_
 const eventTypes = ['ALL', 'SOCIAL_EVENTS', 'CORPORATE_EVENTS', 'BIRTHDAY_SOCIAL', 'PROMOTIONAL_EVENTS', 'ENTERTAINMENT_EVENTS', 'SEASONAL_THEMATIC']
 
 export default function LeadsPage() {
+  const { activeProject } = useActiveProject()
+  const currency = activeProject?.currency ?? 'INR'
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedStage, setSelectedStage] = useState('ALL')
   const [selectedEventType, setSelectedEventType] = useState('ALL')
@@ -271,7 +274,7 @@ export default function LeadsPage() {
                     </div>
                     <div className="bg-muted/50 rounded p-2">
                       <span className="text-muted-foreground text-xs">Budget</span>
-                      <p className="font-semibold text-foreground">{lead.budgetMax ? formatCurrency(Number(lead.budgetMax), 'lakhs') : 'Not set'}</p>
+                      <p className="font-semibold text-foreground">{lead.budgetMax ? formatCurrency(Number(lead.budgetMax), 'lakhs', currency) : 'Not set'}</p>
                     </div>
                   </div>
 

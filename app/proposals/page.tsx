@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { FileText, Loader2 } from 'lucide-react'
 
+import { useActiveProject } from '@/components/active-project-provider'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { eventTypeLabels, formatCurrency, formatDate } from '@/lib/format'
 
@@ -35,6 +36,8 @@ async function fetchProposals(status: string): Promise<{ proposals: Proposal[] }
 const statuses = ['ALL', 'DRAFT', 'SENT', 'VIEWED', 'ACCEPTED', 'DECLINED', 'EXPIRED']
 
 export default function ProposalsPage() {
+  const { activeProject } = useActiveProject()
+  const currency = activeProject?.currency ?? 'INR'
   const queryClient = useQueryClient()
   const [status, setStatus] = useState('ALL')
   const { data, isLoading, isError } = useQuery({ queryKey: ['proposals', status], queryFn: () => fetchProposals(status) })
@@ -115,7 +118,7 @@ export default function ProposalsPage() {
                       </Link>
                     </td>
                     <td className="p-4 text-muted-foreground">{eventTypeLabels[proposal.lead.eventType] ?? proposal.lead.eventType}</td>
-                    <td className="p-4 text-muted-foreground">{proposal.amount ? formatCurrency(Number(proposal.amount)) : 'Not set'}</td>
+                    <td className="p-4 text-muted-foreground">{proposal.amount ? formatCurrency(Number(proposal.amount), 'rupees', currency) : 'Not set'}</td>
                     <td className="p-4">
                       <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{proposal.status}</span>
                     </td>
