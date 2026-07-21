@@ -9,7 +9,6 @@ export const propertyUpdateSchema = z.object({
   city: z.preprocess(emptyToUndefined, z.string().optional()),
   country: z.preprocess(emptyToUndefined, z.string().min(2).optional()),
   currency: z.preprocess(emptyToUndefined, z.string().min(3).max(3).optional()),
-  vertical: z.preprocess(emptyToUndefined, z.string().min(2).optional()),
   phone: z.preprocess(emptyToUndefined, z.string().optional()),
   email: z.preprocess(emptyToUndefined, z.string().email().optional()),
   logoUrl: z.preprocess(emptyToUndefined, z.string().url().optional()),

@@ -171,7 +171,7 @@ export const WATI_TEMPLATES = {
 // One 4-variable template family ({{1}}=name, {{2}}=property, {{3}}=enquiry label, {{4}}=value
 // hook) serves every campaign tab and both tracks — see WHATSAPP_NURTURE_TEMPLATE_PLAN.md.
 
-export type NurtureTrack = 'EVENT' | 'STAY' | 'RENTAL'
+export type NurtureTrack = 'EVENT' | 'STAY'
 
 // Mirror calling-server/server.js's isRoomStayInquiry EXACTLY so a lead is branched the same way
 // on WhatsApp as on the AI voice call. It's a separate Node service — the function can't be
@@ -182,11 +182,7 @@ export function isRoomStayInquiry(sourceTab?: string | null): boolean {
   return l.includes('suite') || l.includes('room') || l.includes('stay') || l.includes('accommodation')
 }
 
-// `vertical` (Property.vertical) takes priority over the sourceTab-derived guess — a real
-// business-type flag beats keyword sniffing. Every existing caller omits `vertical`, so it stays
-// `undefined` and this falls through to the exact original sourceTab-only behaviour unchanged.
-export function nurtureTrack(sourceTab?: string | null, vertical?: string | null): NurtureTrack {
-  if (vertical === 'apartments') return 'RENTAL'
+export function nurtureTrack(sourceTab?: string | null): NurtureTrack {
   return isRoomStayInquiry(sourceTab) ? 'STAY' : 'EVENT'
 }
 
@@ -208,9 +204,8 @@ export function cleanTabLabel(tabName: string): string {
   return s
 }
 
-// {{4}} value hook — deterministic per track (never needs an AI call).
+// {{4}} value hook — deterministic, binary per track (never needs an AI call).
 export function buildNurtureHook(track: NurtureTrack): string {
-  if (track === 'RENTAL') return 'floor plans, rent details and a viewing'
   return track === 'STAY'
     ? 'room options, rates and availability'
     : 'packages, availability and venue details'

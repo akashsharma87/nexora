@@ -83,13 +83,8 @@ export async function generateEnquiryLabel(params: {
   sourceTab?: string | null
   eventType: string
   isStay: boolean
-  // Apartments-vertical (Kika-style rental) enquiry — separate from isStay (a hospitality
-  // room-stay concept) since the two verticals are unrelated. Optional and defaults falsy, so
-  // every existing caller (which never passes it) is completely unaffected.
-  isRental?: boolean
 }): Promise<string> {
-  const category = params.isRental ? 'rental' : params.isStay ? 'stay' : 'event'
-  const key = `${category}|${params.sourceTab || ''}|${params.eventType}`
+  const key = `${params.isStay ? 'stay' : 'event'}|${params.sourceTab || ''}|${params.eventType}`
   const cached = _enquiryLabelCache.get(key)
   if (cached) return cached
 
@@ -97,11 +92,11 @@ export async function generateEnquiryLabel(params: {
   const client = getClient()
   if (!client) return fallback // don't cache the fallback — let AI take over once a key is set
 
-  const prompt = `You write a very short label describing a ${params.isRental ? 'real-estate rental' : 'hospitality'} enquiry, used inside a WhatsApp follow-up like "your ___ enquiry at <hotel>".
+  const prompt = `You write a very short label describing a hospitality enquiry, used inside a WhatsApp follow-up like "your ___ enquiry at <hotel>".
 Campaign/tab: ${params.sourceTab ? cleanTabLabel(params.sourceTab) : 'unknown'}
-Category: ${params.isRental ? 'apartment rental' : params.isStay ? 'room / accommodation stay' : 'event / banquet'}
+Category: ${params.isStay ? 'room / accommodation stay' : 'event / banquet'}
 Reply with ONLY the label — Title Case, 2 to 4 words, no quotes, no punctuation.
-Examples: Wedding celebration, Kitty party gathering, Corporate event, Presidential Suite stay, Weekend stay, Studio apartment rental.`
+Examples: Wedding celebration, Kitty party gathering, Corporate event, Presidential Suite stay, Weekend stay.`
 
   try {
     const response = await client.chat.completions.create({
@@ -126,10 +121,9 @@ Examples: Wedding celebration, Kitty party gathering, Corporate event, President
 // The tab name itself is already human-readable ("Kitty Party", "Presidential Suite") and reads
 // naturally in "your Kitty Party enquiry at <hotel>", so it's the primary fallback. Only when
 // there's no tab at all do we drop to a generic word.
-function enquiryLabelFallback(params: { sourceTab?: string | null; eventType: string; isStay: boolean; isRental?: boolean }): string {
+function enquiryLabelFallback(params: { sourceTab?: string | null; eventType: string; isStay: boolean }): string {
   const tab = cleanTabLabel(params.sourceTab || '')
   if (tab) return tab
-  if (params.isRental) return 'apartment rental'
   return params.isStay ? 'stay' : params.eventType || 'event'
 }
 
