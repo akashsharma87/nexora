@@ -100,19 +100,25 @@ export async function createNurtureSequence(params: {
   propertyName: string
   managerName: string
   sourceTab?: string | null
+  // Property.vertical — selects the RENTAL track for apartments-vertical properties (Kika-style).
+  // Optional and unused by any existing caller, so every current call site keeps its original
+  // sourceTab-only EVENT/STAY branching untouched.
+  vertical?: string | null
   baseTime?: Date
 }) {
-  const { leadId, phone, leadName, eventType, propertyName, managerName, sourceTab } = params
+  const { leadId, phone, leadName, eventType, propertyName, managerName, sourceTab, vertical } = params
   const now = params.baseTime ?? new Date()
 
   // Source-aware personalisation is carried entirely in template variables so ONE 4-variable
-  // template family covers every campaign tab + both tracks (see WHATSAPP_NURTURE_TEMPLATE_PLAN.md):
+  // template family covers every campaign tab + all tracks (see WHATSAPP_NURTURE_TEMPLATE_PLAN.md):
   //   {{3}} enquiry label — AI-generated per tab, cached, with a deterministic fallback
-  //   {{4}} value hook     — deterministic, binary per track
-  // Branches identically to the AI voice call via the shared isRoomStayInquiry keyword set.
-  const track = nurtureTrack(sourceTab)
+  //   {{4}} value hook     — deterministic per track
+  // Branches identically to the AI voice call via the shared isRoomStayInquiry keyword set /
+  // vertical flag.
+  const track = nurtureTrack(sourceTab, vertical)
+  const isRental = track === 'RENTAL'
   const hook = buildNurtureHook(track)
-  const label = await generateEnquiryLabel({ sourceTab, eventType, isStay: track === 'STAY' })
+  const label = await generateEnquiryLabel({ sourceTab, eventType, isStay: track === 'STAY', isRental })
 
   // All 5 templates share the same 4 vars in the same order — {{1}}=name, {{2}}=property,
   // {{3}}=enquiry label, {{4}}=value hook — so the params array is uniform and a template's real
@@ -162,7 +168,12 @@ export async function createNurtureSequence(params: {
       payload: {
         templateName: WATI_TEMPLATES.NURTURE_DAY5,
         parameters: params4,
-        message: `Hi ${leadName}, a quick update from ${propertyName} on your ${label} enquiry. Our recent guests have really enjoyed their experience with us. Can I help you with ${hook} this week? — ${managerName}`,
+        // "Our recent guests" reads oddly to a rental prospect (they'd be a tenant, not a
+        // hospitality guest) — the only spot in this message family that names a person-type
+        // outside the label/hook variables, so it's the only line that needs a per-track variant.
+        message: isRental
+          ? `Hi ${leadName}, a quick update from ${propertyName} on your ${label} enquiry. Many of our tenants have really enjoyed living here. Can I help you with ${hook} this week? — ${managerName}`
+          : `Hi ${leadName}, a quick update from ${propertyName} on your ${label} enquiry. Our recent guests have really enjoyed their experience with us. Can I help you with ${hook} this week? — ${managerName}`,
       },
     },
     {
@@ -206,12 +217,12 @@ export async function scheduleLeadNurtureSequence(params: {
 
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
-    select: { autoWhatsappNurtureEnabled: true },
+    select: { autoWhatsappNurtureEnabled: true, vertical: true },
   })
   if (!property?.autoWhatsappNurtureEnabled) return
   if ((await hourlyNurtureStartCount(propertyId)) >= AUTOMATION_HOURLY_CAP) return
 
-  await createNurtureSequence(rest)
+  await createNurtureSequence({ ...rest, vertical: property.vertical })
 }
 
 // Fired immediately from the AI-call outcome handler when Priya's call reaches a successful
@@ -232,7 +243,7 @@ export async function sendPostCallWhatsApp(params: {
 }): Promise<{ sent: boolean }> {
   const property = await prisma.property.findUnique({
     where: { id: params.propertyId },
-    select: { autoWhatsappNurtureEnabled: true },
+    select: { autoWhatsappNurtureEnabled: true, vertical: true },
   })
   if (!property?.autoWhatsappNurtureEnabled) {
     // This is the #1 reason a post-call WhatsApp "never sends": the toggle defaults to false,
@@ -242,12 +253,13 @@ export async function sendPostCallWhatsApp(params: {
     return { sent: false }
   }
 
-  const track = nurtureTrack(params.sourceTab)
+  const track = nurtureTrack(params.sourceTab, property.vertical)
   const hook = buildNurtureHook(track)
   const label = await generateEnquiryLabel({
     sourceTab: params.sourceTab,
     eventType: params.eventType,
     isStay: track === 'STAY',
+    isRental: track === 'RENTAL',
   })
   const caller = params.callerName || 'Priya'
 

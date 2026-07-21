@@ -63,6 +63,15 @@ async function handleOutcomeUpdate(
     eventDate?: string
     guestCount?: number
     budgetRange?: string
+    // Apartments-vertical fields (see calling-server/server.js apartmentsOutcomeTool) — undefined
+    // on every banquet call, since that tool never sends them. Kept separate from the banquet
+    // fields above (never reusing guestCount/budgetRange for a different meaning) so a mixed-up
+    // read is impossible and the banquet formatting below never needs to guess which vertical
+    // produced the payload.
+    moveInDate?: string
+    leaseDurationMonths?: number
+    budgetMonthlyRent?: string
+    viewingInterest?: string
     callbackTime?: string
     notes: string
     transcript: { role: string; content: string }[]
@@ -95,8 +104,12 @@ async function handleOutcomeUpdate(
   // Find a system user for activity logging
   const property = await prisma.property.findUnique({
     where: { id: aiCall.propertyId },
-    select: { organizationId: true, name: true },
+    select: { organizationId: true, name: true, vertical: true },
   })
+  // Selects which fields (rental vs banquet) get formatted into the task description / lead
+  // notes below. The banquet formatting is completely untouched in the `else` branches — this
+  // only adds a parallel path for the apartments vertical.
+  const isApartments = property?.vertical === 'apartments'
   const systemUser = await prisma.user.findFirst({
     where: { organizationId: property?.organizationId ?? '', role: { in: ['OWNER', 'MANAGER'] } },
     select: { id: true, name: true },
@@ -146,6 +159,11 @@ async function handleOutcomeUpdate(
         guestCount: body.guestCount ?? null,
         budgetRange: body.budgetRange ?? null,
         eventDate: body.eventDate ?? null,
+        // Apartments-vertical fields — null on every banquet call.
+        moveInDate: body.moveInDate ?? null,
+        leaseDurationMonths: body.leaseDurationMonths ?? null,
+        budgetMonthlyRent: body.budgetMonthlyRent ?? null,
+        viewingInterest: body.viewingInterest ?? null,
       },
     },
   })
@@ -161,12 +179,15 @@ async function handleOutcomeUpdate(
     // Create a follow-up task for the team
     const qualifiedTaskTitle = `Follow up with ${aiCall.lead.name} — AI call qualified`
     const qualifiedDueDate = new Date(Date.now() + 60 * 60 * 1000) // 1 hour from now
+    const qualifiedDetailsLine = isApartments
+      ? `Rent budget: ${body.budgetMonthlyRent ?? 'not mentioned'}. Move-in: ${body.moveInDate ?? 'not mentioned'}. Lease duration: ${body.leaseDurationMonths ? `${body.leaseDurationMonths} months` : 'not mentioned'}. Viewing interest: ${body.viewingInterest ?? 'not mentioned'}.`
+      : `Budget: ${body.budgetRange ?? 'not mentioned'}. Guests: ${body.guestCount ?? 'not mentioned'}.`
     await prisma.task.create({
       data: {
         leadId: aiCall.leadId,
         assignedToId: taskAssigneeId,
         title: qualifiedTaskTitle,
-        description: `Budget: ${body.budgetRange ?? 'not mentioned'}. Guests: ${body.guestCount ?? 'not mentioned'}. Notes: ${body.notes}`,
+        description: `${qualifiedDetailsLine} Notes: ${body.notes}`,
         priority: 'HIGH',
         dueDate: qualifiedDueDate,
         source: 'AI_CALL',
@@ -241,10 +262,17 @@ async function handleOutcomeUpdate(
 
   // Update lead notes with gathered info if qualified
   if (body.outcome === 'QUALIFIED') {
-    const noteParts = []
-    if (body.guestCount) noteParts.push(`Guests: ${body.guestCount}`)
-    if (body.budgetRange) noteParts.push(`Budget: ${body.budgetRange}`)
-    if (body.eventDate) noteParts.push(`Date: ${body.eventDate}`)
+    const noteParts: string[] = []
+    if (isApartments) {
+      if (body.budgetMonthlyRent) noteParts.push(`Rent budget: ${body.budgetMonthlyRent}`)
+      if (body.moveInDate) noteParts.push(`Move-in: ${body.moveInDate}`)
+      if (body.leaseDurationMonths) noteParts.push(`Lease duration: ${body.leaseDurationMonths} months`)
+      if (body.viewingInterest) noteParts.push(`Viewing: ${body.viewingInterest}`)
+    } else {
+      if (body.guestCount) noteParts.push(`Guests: ${body.guestCount}`)
+      if (body.budgetRange) noteParts.push(`Budget: ${body.budgetRange}`)
+      if (body.eventDate) noteParts.push(`Date: ${body.eventDate}`)
+    }
     if (noteParts.length > 0) {
       const existingLead = await prisma.lead.findUnique({ where: { id: aiCall.leadId }, select: { notes: true } })
       const updatedNotes = [existingLead?.notes, `[AI Call] ${noteParts.join(' | ')}`]

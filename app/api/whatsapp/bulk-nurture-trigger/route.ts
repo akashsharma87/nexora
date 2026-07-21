@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
         propertyName: property?.name || 'our venue',
         managerName: manager?.name || 'our team',
         sourceTab: lead.sourceTab,
+        vertical: property?.vertical,
         baseTime: new Date(Date.now() + i * STAGGER_MS),
       })
     )

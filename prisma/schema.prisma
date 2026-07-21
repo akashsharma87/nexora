@@ -34,6 +34,12 @@ model Property {
   // any other code is formatted as a plain amount in that currency, with NO Lakh-style
   // multiplication (that convention is an India-only sheet habit, see formatCurrency).
   currency             String            @default("INR")
+  // Business type this property runs, selecting the AI voice-agent persona + qualification flow
+  // (lib/ai-calling.ts → calling-server/server.js buildInstructions). Free text (like `country`/
+  // `currency`), NOT an enum, so a new vertical never needs a migration. "banquet" (default) is
+  // the original banquet/event coordinator flow — unchanged for every existing client. "apartments"
+  // is the Kika-style real-estate rental flow. Anything unrecognised falls back to "banquet".
+  vertical             String            @default("banquet")
   phone                String?
   email                String?
   logoUrl              String?

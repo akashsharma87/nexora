@@ -52,7 +52,7 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
 
   const property = await prisma.property.findUnique({
     where: { id: aiCall.propertyId },
-    select: { name: true, country: true, address: true, city: true },
+    select: { name: true, country: true, address: true, city: true, vertical: true, currency: true },
   })
 
   const callingServerUrl = process.env.CALLING_SERVER_URL ?? ''
@@ -78,6 +78,13 @@ export async function initiateAiCall(aiCallId: string): Promise<string> {
     // property's leads are overwhelmingly from one region. Drives Priya's default language in
     // calling-server/server.js (India → Hinglish, else → English).
     ['country', property?.country ?? 'India'],
+    // Selects Priya's persona + qualification flow in buildInstructions (banquet vs apartments,
+    // see VERTICAL_PROFILES in calling-server/server.js). Defaults to "banquet" so every existing
+    // property with no vertical set behaves exactly as before.
+    ['vertical', property?.vertical ?? 'banquet'],
+    // ISO 4217 code the property's budget figures are denominated in (e.g. Kika/Kenya = "KES").
+    // Used by the apartments profile to state rent in the right currency instead of INR lakhs.
+    ['currency', property?.currency ?? 'INR'],
     // Lets the calling server fetch this property's Knowledge Base key facts itself (see
     // GET /api/internal/knowledge-facts) rather than trying to pass the facts through a
     // <Parameter> — there's no practical size limit concern this way, and it stays a single

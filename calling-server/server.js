@@ -65,6 +65,13 @@ wss.on('connection', (twilioWs, req) => {
   // instruction so Priya never just agrees when a caller names the wrong city/area.
   let propertyCity = url.searchParams.get('propertyCity') || null
   let propertyAddress = url.searchParams.get('propertyAddress') || null
+  // Selects Priya's persona + qualification flow (see VERTICAL_PROFILES logic inside
+  // buildInstructions). Defaults to "banquet" so any property with no vertical set — every
+  // existing client — behaves exactly as before. "apartments" = Kika-style rental sales flow.
+  let vertical = url.searchParams.get('vertical') || 'banquet'
+  // ISO 4217 code the property's budget figures are denominated in — used by the apartments
+  // profile to state rent in the right currency instead of assuming INR lakhs.
+  let currency = url.searchParams.get('currency') || 'INR'
 
   console.log(`[call:${callId}] New Twilio connection — lead: ${leadName}`)
 
@@ -122,11 +129,11 @@ wss.on('connection', (twilioWs, req) => {
       session: {
         type: 'realtime',
         output_modalities: ['audio'],
-        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, propertyCity, propertyAddress, knowledgeFacts }),
+        instructions: buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, propertyCity, propertyAddress, knowledgeFacts, vertical, currency }),
         // NOTE: do NOT add a `reasoning` param here — gpt-realtime rejects it
         // ("Unsupported option for this model"), which would fail the whole
         // session.update and leave the call silent. It's a gpt-realtime-2.1-only option.
-        tools: [outcomeReportTool],
+        tools: [vertical === 'apartments' ? apartmentsOutcomeTool : outcomeReportTool],
         tool_choice: 'auto',
         audio: {
           input: {
@@ -377,6 +384,8 @@ wss.on('connection', (twilioWs, req) => {
       if (cp.propertyId) propertyId = cp.propertyId
       if (cp.propertyCity) propertyCity = cp.propertyCity
       if (cp.propertyAddress) propertyAddress = cp.propertyAddress
+      if (cp.vertical) vertical = cp.vertical
+      if (cp.currency) currency = cp.currency
       started = true
 
       // Kick the knowledge-facts fetch the moment propertyId is known, in parallel with the
@@ -546,13 +555,35 @@ function isRoomStayInquiry(tabName) {
   return l.includes('suite') || l.includes('room') || l.includes('stay') || l.includes('accommodation')
 }
 
-// Lakhs, matching the "Budget Min/Max (L)" fields in the CRM's lead form.
+// Lakhs, matching the "Budget Min/Max (L)" fields in the CRM's lead form. Banquet-vertical only —
+// the apartments vertical uses formatRentLabel below, which is currency-aware instead of assuming
+// INR lakhs (Kika/Kenya leads are quoted in KES).
 function formatBudgetLabel(min, max) {
   const hasMin = typeof min === 'number' && min > 0
   const hasMax = typeof max === 'number' && max > 0
   if (hasMin && hasMax) return `₹${min}–${max} lakhs`
   if (hasMax) return `up to ₹${max} lakhs`
   if (hasMin) return `₹${min}+ lakhs`
+  return null
+}
+
+// Same budgetMin/budgetMax Lead fields as formatBudgetLabel, but read as a plain monthly rent
+// amount in the property's own currency (Property.currency) rather than INR lakhs — used only by
+// the apartments vertical. The DB fields are unit-agnostic Decimals (see prisma/schema.prisma);
+// "lakhs" is purely a banquet-vertical prompt/UI convention, so reinterpreting them as a plain
+// rent figure for a different vertical is safe.
+function formatRentLabel(min, max, currency) {
+  const hasMin = typeof min === 'number' && min > 0
+  const hasMax = typeof max === 'number' && max > 0
+  const code = (currency || 'INR').toUpperCase()
+  // Explicit 'en-US' locale, NOT the bare no-arg toLocaleString() — that follows the host
+  // process's default locale (e.g. Railway/dev machine locale), which can silently render
+  // Indian-style digit grouping (1,00,000) instead of standard thousands grouping (100,000).
+  // Wrong for a Kenyan Shilling figure regardless of what locale this process happens to run in.
+  const fmt = (n) => n.toLocaleString('en-US')
+  if (hasMin && hasMax) return `${code} ${fmt(min)}–${fmt(max)}/month`
+  if (hasMax) return `up to ${code} ${fmt(max)}/month`
+  if (hasMin) return `${code} ${fmt(min)}+/month`
   return null
 }
 
@@ -587,11 +618,19 @@ function getVoice(country) {
   return getLanguageTier(country) === 'HINGLISH' ? 'coral' : 'marin'
 }
 
-function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, propertyCity, propertyAddress, knowledgeFacts }) {
+function buildInstructions({ leadName, eventType, propertyName, eventDate, sourceTab, guestCount, budgetMin, budgetMax, country, propertyCity, propertyAddress, knowledgeFacts, vertical, currency }) {
   const dateClause = eventDate ? ` on ${eventDate}` : ''
   const roomStay = isRoomStayInquiry(sourceTab)
   const hasGuestCount = typeof guestCount === 'number' && guestCount > 0
   const budgetLabel = formatBudgetLabel(budgetMin, budgetMax)
+  // Kika-style real-estate rental vertical (Property.vertical = "apartments"). Every value below
+  // is gated `isApartments ? <new apartments text> : (<the exact original banquet/roomStay
+  // ternary, untouched>)` — so when isApartments is false (every existing property, since
+  // Property.vertical defaults to "banquet"), each expression evaluates the identical original
+  // code path and produces byte-for-byte the same instruction string as before this vertical was
+  // added. Never touch the second branch of these ternaries without re-verifying banquet parity.
+  const isApartments = vertical === 'apartments'
+  const rentLabel = isApartments ? formatRentLabel(budgetMin, budgetMax, currency) : null
   const knowledgeFactsList = renderKnowledgeFacts(knowledgeFacts)
   // Guaranteed location fact — independent of the knowledge-base scrape (which may miss the
   // address entirely, or lose it to the ~20-fact cap on a large site). Only built when staff have
@@ -616,19 +655,27 @@ function buildInstructions({ leadName, eventType, propertyName, eventDate, sourc
 
   // Say back what they actually asked about — "Kitty Party" or "Wedding" (the real tab name)
   // reads far more naturally to the lead than the generic word "banquet" for every call.
-  const enquiryLabel = sourceTab ? sourceTab.trim() : (roomStay ? 'a stay' : eventType)
+  const enquiryLabel = isApartments
+    ? (sourceTab ? sourceTab.trim() : 'a studio apartment')
+    : (sourceTab ? sourceTab.trim() : (roomStay ? 'a stay' : eventType))
 
-  const personaLine = roomStay
-    ? `You are Priya, a warm guest-relations executive calling ${leadName} from ${propertyName}. ${leadName} enquired about ${enquiryLabel}${dateClause}.`
-    : `You are Priya, a warm banquet coordinator calling ${leadName} from ${propertyName}. ${leadName} submitted an enquiry about ${enquiryLabel}${dateClause}.`
-
-  const openingLine = isIndia
-    ? (roomStay
-        ? `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} mein stay ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
-        : `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`)
+  const personaLine = isApartments
+    ? `You are Priya, a warm and professional rental sales consultant calling ${leadName} from ${propertyName}. ${leadName} enquired about renting ${enquiryLabel}${dateClause}.`
     : (roomStay
-        ? `Hello, is this ${leadName}? This is Priya calling from ${propertyName} — you'd sent us an enquiry about a stay in ${enquiryLabel}, is that right? Do you have a couple of minutes to chat?`
-        : `Hello, is this ${leadName}? This is Priya calling from ${propertyName} — you'd sent us an enquiry about ${enquiryLabel}, is that right? Do you have a couple of minutes to chat?`)
+        ? `You are Priya, a warm guest-relations executive calling ${leadName} from ${propertyName}. ${leadName} enquired about ${enquiryLabel}${dateClause}.`
+        : `You are Priya, a warm banquet coordinator calling ${leadName} from ${propertyName}. ${leadName} submitted an enquiry about ${enquiryLabel}${dateClause}.`)
+
+  const openingLine = isApartments
+    ? (isIndia
+        ? `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} rent karne ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
+        : `Hello, is this ${leadName}? This is Priya calling from ${propertyName} — you'd enquired about renting ${enquiryLabel}, is that right? Do you have a couple of minutes to chat?`)
+    : (isIndia
+        ? (roomStay
+            ? `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} mein stay ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`
+            : `Hello, ${leadName}? Namaste, main Priya bol rahi hoon ${propertyName} se... aapne humein ${enquiryLabel} ke liye enquiry bheji thi na? Ek-do minute baat ho sakti hai abhi?`)
+        : (roomStay
+            ? `Hello, is this ${leadName}? This is Priya calling from ${propertyName} — you'd sent us an enquiry about a stay in ${enquiryLabel}, is that right? Do you have a couple of minutes to chat?`
+            : `Hello, is this ${leadName}? This is Priya calling from ${propertyName} — you'd sent us an enquiry about ${enquiryLabel}, is that right? Do you have a couple of minutes to chat?`))
 
   // Fixed example lines below (goodbye/busy/not-interested/unclear-audio/acknowledgements) are
   // baked into the prompt as concrete phrasing, so they must switch with isIndia too — otherwise
@@ -649,16 +696,26 @@ function buildInstructions({ leadName, eventType, propertyName, eventDate, sourc
   const acknowledgementBank = isIndia
     ? '"achha", "okay", "theek hai", "hmm", "samajh gayi", "bilkul", "arre wah", "sahi hai", "great", "perfect", "oh nice", "acha acha", "ji bilkul", "wonderful"'
     : '"okay", "got it", "sure", "lovely", "sounds good", "makes sense", "wonderful", "perfect", "I see", "great", "oh nice", "absolutely"'
-  const confirmKnownExample = isIndia
-    ? `maine dekha aapne ${hasGuestCount ? `around ${guestCount} guests` : 'kuch details'} mention kiya tha, sahi hai na?`
-    : `I saw you'd mentioned ${hasGuestCount ? `around ${guestCount} guests` : 'a few details already'} — is that right?`
+  const confirmKnownExample = isApartments
+    ? (isIndia
+        ? 'maine dekha aapne kuch details mention kiya tha, sahi hai na?'
+        : "I saw you'd mentioned a few details already — is that right?")
+    : (isIndia
+        ? `maine dekha aapne ${hasGuestCount ? `around ${guestCount} guests` : 'kuch details'} mention kiya tha, sahi hai na?`
+        : `I saw you'd mentioned ${hasGuestCount ? `around ${guestCount} guests` : 'a few details already'} — is that right?`)
 
   // What's already on file — Priya must CONFIRM these in passing, never ask cold, or she
   // sounds like she never read the lead's own submission (their #1 complaint about IVR-ish bots).
   const knownParts = []
-  if (hasGuestCount) knownParts.push(`Guest count: around ${guestCount}${roomStay ? ' staying' : ' guests'}`)
-  if (!roomStay && budgetLabel) knownParts.push(`Budget: ${budgetLabel}`)
-  if (eventDate) knownParts.push(`${roomStay ? 'Check-in date' : 'Event date'}: ${eventDate}`)
+  if (isApartments) {
+    if (hasGuestCount) knownParts.push(`Occupants: around ${guestCount}`)
+    if (rentLabel) knownParts.push(`Rent budget: ${rentLabel}`)
+    if (eventDate) knownParts.push(`Move-in date: ${eventDate}`)
+  } else {
+    if (hasGuestCount) knownParts.push(`Guest count: around ${guestCount}${roomStay ? ' staying' : ' guests'}`)
+    if (!roomStay && budgetLabel) knownParts.push(`Budget: ${budgetLabel}`)
+    if (eventDate) knownParts.push(`${roomStay ? 'Check-in date' : 'Event date'}: ${eventDate}`)
+  }
   const knownDetailsSection = knownParts.length > 0
     ? knownParts.map((p) => `- ${p}`).join('\n')
     : '- Nothing beyond the occasion itself — gather everything in WHAT TO LEARN fresh.'
@@ -669,31 +726,41 @@ function buildInstructions({ leadName, eventType, propertyName, eventDate, sourc
     ? 'Assume they can finalise this themselves unless they say otherwise — they are the one who submitted the enquiry, so they know the event and are the decision-maker. Do not ask whether they need sign-off from someone else; if a budget approval or a colleague\'s involvement comes up naturally in what they say, acknowledge it, but never ask for it as a checklist item.'
     : 'Assume THEY are the decision-maker for this occasion — they filled out the enquiry themselves, they know the details, so treat them as someone who can decide, full stop. Do NOT ask whether they are deciding alone, with family, or need to "check" with anyone — that question reads as presumptuous and undermines them, never ask it in any phrasing. If it\'s useful, you can casually ask whether they\'re ready to lock this in soon or still comparing a couple of venues — that is about timeline, not about who is "allowed" to decide.'
 
-  const whatToLearn = roomStay
+  const whatToLearn = isApartments
     ? [
-        eventDate
-          ? 'We already have their check-in date — confirm it naturally, then ask their check-out date / how many nights.'
-          : 'Their check-in and check-out dates (exact if they have them, or roughly which dates/month if not fixed yet).',
-        !hasGuestCount ? 'How many guests will be staying.' : null,
-        'The purpose of the stay (leisure trip, business, anniversary or another special occasion) — ask casually, not like a form.',
-        'Any room preference or special request they mention.',
-        "Whether they're ready to book once they know rates and availability, or still comparing options.",
+        !eventDate ? 'Roughly when they are hoping to move in.' : null,
+        !hasGuestCount ? 'How many people will be living there.' : null,
+        !rentLabel ? `Their monthly rent budget in ${currency} (ask gently, casually).` : null,
+        'Roughly how long they are planning to stay — this is not on the enquiry form, so always ask.',
+        "Whether they'd like to arrange a viewing, and roughly what timing would suit them.",
       ].filter(Boolean).join('\n- ').replace(/^/, '- ')
-    : [
-        !eventDate ? 'Roughly when they\'re planning it.' : null,
-        !hasGuestCount ? 'Roughly how many guests.' : null,
-        !budgetLabel ? 'Budget range they have in mind (ask gently, casually).' : null,
-        decisionMakerGuidance,
-      ].filter(Boolean).join('\n- ').replace(/^/, '- ')
+    : (roomStay
+        ? [
+            eventDate
+              ? 'We already have their check-in date — confirm it naturally, then ask their check-out date / how many nights.'
+              : 'Their check-in and check-out dates (exact if they have them, or roughly which dates/month if not fixed yet).',
+            !hasGuestCount ? 'How many guests will be staying.' : null,
+            'The purpose of the stay (leisure trip, business, anniversary or another special occasion) — ask casually, not like a form.',
+            'Any room preference or special request they mention.',
+            "Whether they're ready to book once they know rates and availability, or still comparing options.",
+          ].filter(Boolean).join('\n- ').replace(/^/, '- ')
+        : [
+            !eventDate ? 'Roughly when they\'re planning it.' : null,
+            !hasGuestCount ? 'Roughly how many guests.' : null,
+            !budgetLabel ? 'Budget range they have in mind (ask gently, casually).' : null,
+            decisionMakerGuidance,
+          ].filter(Boolean).join('\n- ').replace(/^/, '- '))
 
-  const closingLine = roomStay
-    ? "you'll send room availability and rates on WhatsApp right away, and our reservations team will call within the hour to confirm."
-    : 'you\'ll send venue photos, packages and pricing on WhatsApp right away, and a senior colleague will call within the hour for details.'
+  const closingLine = isApartments
+    ? "you'll send floor plans, availability and rent details on WhatsApp right away, and our leasing team will call within the hour to arrange a viewing."
+    : (roomStay
+        ? "you'll send room availability and rates on WhatsApp right away, and our reservations team will call within the hour to confirm."
+        : 'you\'ll send venue photos, packages and pricing on WhatsApp right away, and a senior colleague will call within the hour for details.')
 
   return `${personaLine}
 
 # ROLE & OBJECTIVE
-Have a genuine, friendly phone chat to understand ${roomStay ? 'their stay plans' : 'their event'} and gauge interest — then hand off warmly. You are a real person, NOT a bot, NOT a survey. You've done this hundreds of times; it's easy and natural.
+Have a genuine, friendly phone chat to understand ${isApartments ? 'their housing needs' : (roomStay ? 'their stay plans' : 'their event')} and gauge interest — then hand off warmly. You are a real person, NOT a bot, NOT a survey. You've done this hundreds of times; it's easy and natural.
 
 ${useIndianAccent ? `# ACCENT & VOICE (CRITICAL — follow strictly)
 - Speak in an authentic INDIAN ENGLISH accent — the natural way a warm, well-spoken young Indian woman from a metro city (Delhi/Mumbai) talks on the phone. Your vowels, rhythm and word-stress are Indian English.
@@ -718,7 +785,7 @@ ${isIndia ? `# LANGUAGE (CRITICAL — follow strictly)
 - If the lead unexpectedly speaks Hindi/Hinglish to you, you may mirror a little, but default back to English — never assume Hindi for this call.`}
 
 # PERSONALITY & TONE
-- Warm, friendly, lightly chatty; genuinely curious about ${roomStay ? 'their stay' : 'their event'}. Smile in your voice.
+- Warm, friendly, lightly chatty; genuinely curious about ${isApartments ? 'their housing needs' : (roomStay ? 'their stay' : 'their event')}. Smile in your voice.
 - Talk like a real, warm person on the phone${useHindiLanguage ? ': natural Hinglish, spoken in an Indian accent (follow the LANGUAGE rule above for when English is okay)' : useIndianAccent ? ', in clear English spoken with a warm Indian-English accent (follow the LANGUAGE rule above)' : ', in clear English (follow the LANGUAGE rule above)'}.
 - Keep EVERY turn short — 1 to 2 sentences, one idea at a time. Then STOP and listen. Never monologue. Never stack two questions.
 - Match their energy: excited when they share happy news, calm and reassuring if they sound unsure.
@@ -740,7 +807,7 @@ ${isIndia ? `# LANGUAGE (CRITICAL — follow strictly)
 
 # OFF-TOPIC / OUT-OF-SCOPE QUESTIONS (important)
 - If they ask something off-topic, unexpected, or outside what you'd know (unrelated topics, oddly specific or technical questions, testing you, etc.), stay warm and human — do NOT get flustered and do NOT treat it as a signal to end the call.
-- If it's quick and harmless, answer briefly, then gently guide back to ${roomStay ? 'their stay' : 'their event'}. If you genuinely don't know or it's not your area, say so simply and warmly ("that's something my colleague can help you with when they call you shortly") and steer back — never make up facts, prices, or policies.
+- If it's quick and harmless, answer briefly, then gently guide back to ${isApartments ? 'their housing needs' : (roomStay ? 'their stay' : 'their event')}. If you genuinely don't know or it's not your area, say so simply and warmly ("that's something my colleague can help you with when they call you shortly") and steer back — never make up facts, prices, or policies.
 - Off-topic or repeated random questions are NEVER a reason to wrap up or hang up. Keep engaging patiently for as long as they want to talk; only move toward closing when there's a genuine, natural reason to (see ENDING THE CALL).
 
 # UNCLEAR AUDIO
@@ -753,12 +820,12 @@ ${isIndia ? `# LANGUAGE (CRITICAL — follow strictly)
 - NEVER attach "ji" directly after their name (e.g. never say "${leadName} ji"). Say the name plainly on its own — "${leadName}, ..." — or drop the name and use "ji" elsewhere in the sentence instead. "ji" is fine as a general polite word elsewhere, just never stuck right after their name.
 
 ${locationLine ? `# LOCATION (CRITICAL — never agree to a wrong one)
-${propertyName} is located at ${locationLine}. This is the ONLY location this venue operates from.
-- If the lead assumes, names, or asks to confirm a different city, area, or landmark as the venue's location, do NOT just agree or say "yes" to be agreeable — that is a real error, not small talk. Politely and clearly correct them with the actual location above.
+${propertyName} is located at ${locationLine}. This is the ONLY location this ${isApartments ? 'property' : 'venue'} operates from.
+- If the lead assumes, names, or asks to confirm a different city, area, or landmark as the ${isApartments ? 'property\'s' : 'venue\'s'} location, do NOT just agree or say "yes" to be agreeable — that is a real error, not small talk. Politely and clearly correct them with the actual location above.
 - Only ever confirm proximity/directions relative to the actual location above. Never invent distances, travel times, or nearby landmarks that aren't part of what you know.
 ` : ''}
-${knowledgeFactsList ? `# ABOUT THE VENUE (KNOWLEDGE BASE — use naturally in conversation)
-These are verified facts about the venue. Use them to answer the lead's questions confidently and
+${knowledgeFactsList ? `# ABOUT ${isApartments ? 'THE PROPERTY' : 'THE VENUE'} (KNOWLEDGE BASE — use naturally in conversation)
+These are verified facts about the ${isApartments ? 'property' : 'venue'}. Use them to answer the lead's questions confidently and
 specifically. But:
 - Speak naturally — never read this list out or dump it. Pull in only what's relevant to what they
   actually ask.
@@ -775,7 +842,7 @@ ${knownDetailsSection}
 # OPENING
 Open warmly and naturally, in your own words — e.g. "${openingLine}" (Don't read it verbatim — say it fresh.)
 
-Once they confirm they're free to talk (any clear "yes"/"haan"/"bolo" type response), move straight into warm curiosity about ${roomStay ? 'their stay' : 'their event'} — do NOT treat their "yes" as a reason to wrap up, offer a callback, or mention a senior colleague. Those closing moves are ONLY for when they say they're busy, not interested, or you've finished gathering what you need in WHAT TO LEARN below.
+Once they confirm they're free to talk (any clear "yes"/"haan"/"bolo" type response), move straight into warm curiosity about ${isApartments ? 'their housing needs' : (roomStay ? 'their stay' : 'their event')} — do NOT treat their "yes" as a reason to wrap up, offer a callback, or mention a senior colleague. Those closing moves are ONLY for when they say they're busy, not interested, or you've finished gathering what you need in WHAT TO LEARN below.
 
 # WHAT TO LEARN (through natural chat, NOT a checklist — react to each answer before the next; skip anything already covered in WHAT YOU ALREADY KNOW above)
 ${whatToLearn}
@@ -823,6 +890,57 @@ const outcomeReportTool = {
         type: 'string',
         description:
           'Brief 1-2 sentence summary. For a room-stay call, include the check-out date and any room preference here (there is no separate field for them).',
+      },
+    },
+    required: ['outcome', 'qualifiedScore', 'notes'],
+  },
+}
+
+// Apartments-vertical variant of the outcome tool (selected in configureSession when
+// vertical === 'apartments'). Same function name ('report_outcome') and same required fields as
+// outcomeReportTool above, so handleOutcomeCall's listeners work unchanged for either vertical —
+// only the optional captured-detail fields differ, matching what Priya actually asks about for a
+// rental lead (no unitType/furnishedPreference — Kika phase 1 is unfurnished studios only, so
+// there is nothing to choose between).
+const apartmentsOutcomeTool = {
+  type: 'function',
+  name: 'report_outcome',
+  description:
+    'Report the qualification outcome. Call this ONLY as your very last action of the call — ' +
+    'AFTER you have already spoken your complete goodbye sentence out loud, never before it and ' +
+    'never mid-sentence. Calling this hangs up the call immediately, so make sure your goodbye is ' +
+    'fully spoken first.',
+  parameters: {
+    type: 'object',
+    properties: {
+      outcome: {
+        type: 'string',
+        enum: ['QUALIFIED', 'NOT_QUALIFIED', 'CALLBACK', 'WRONG_NUMBER', 'VOICEMAIL', 'UNKNOWN'],
+      },
+      qualifiedScore: {
+        type: 'number',
+        description: '0–100. 100 = very interested and ready to arrange a viewing.',
+      },
+      moveInDate: {
+        type: 'string',
+        description: 'YYYY-MM-DD if exact, or a rough month/timeframe they mentioned for moving in. Null if unknown.',
+      },
+      leaseDurationMonths: {
+        type: 'number',
+        description: 'Roughly how many months they plan to stay, or null if not mentioned.',
+      },
+      budgetMonthlyRent: {
+        type: 'string',
+        description: 'Their stated monthly rent budget with currency, e.g. "KES 100,000-130,000". Null if not mentioned.',
+      },
+      viewingInterest: {
+        type: 'string',
+        description: 'Whether they want to arrange a viewing and any timing preference they gave, or null.',
+      },
+      callbackTime: { type: 'string', description: 'When they want callback — for CALLBACK outcome' },
+      notes: {
+        type: 'string',
+        description: 'Brief 1-2 sentence summary of the call, including how many people are moving in if mentioned.',
       },
     },
     required: ['outcome', 'qualifiedScore', 'notes'],
